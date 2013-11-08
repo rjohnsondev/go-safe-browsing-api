@@ -38,7 +38,7 @@ at the interval requested by google.
 package main
 
 import (
-	safebrowsing "github.com/rjohnsondev/go-safe-browsing"
+	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
     log          "github.com/rjohnsondev/log4go-raven"
     "os"
 )
@@ -132,7 +132,7 @@ Logger, so you can drop that in pretty easily:
 package main
 
 import (
-	safebrowsing "github.com/rjohnsondev/go-safe-browsing"
+	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
     log          "github.com/rjohnsondev/log4go-raven"
 )
 
@@ -151,7 +151,7 @@ setting the <code>OfflineMode</code> global variable:
 package main
 
 import (
-	safebrowsing "github.com/rjohnsondev/go-safe-browsing"
+	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
 )
 
 func main() {
