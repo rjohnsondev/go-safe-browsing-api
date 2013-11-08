@@ -1,6 +1,9 @@
 Google Safe Browsing API
 ========================
 
+[![Build Status](https://travis-ci.org/rjohnsondev/go-safe-browsing-api.png?branch=master)](https://travis-ci.org/rjohnsondev/go-safe-browsing-api)
+[![Coverage Status](https://coveralls.io/repos/rjohnsondev/go-safe-browsing-api/badge.png?branch=HEAD)](https://coveralls.io/r/rjohnsondev/go-safe-browsing-api?branch=HEAD)
+
 This library provides client functionality for version 2 of the Google safe
 browsing API as per:
 https://developers.google.com/safe-browsing/developers_guide_v2
