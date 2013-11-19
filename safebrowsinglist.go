@@ -164,14 +164,14 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 			}
 			// apply this chunk.
             if chunk.HashLen != 32 {
-                if ssl.HashPrefixLen != 0 {
-                    if ssl.HashPrefixLen != chunk.HashLen {
-                        // ERR, more than one length hash in this list :/
-                        panic(fmt.Errorf(
-                            "Found more than 1 length hash in a single list, " +
-                            "this is currently unsupported"))
-                    }
+                if ssl.HashPrefixLen == 0 {
                     ssl.HashPrefixLen = chunk.HashLen
+
+                } else if ssl.HashPrefixLen != chunk.HashLen {
+                    // ERR, more than one length hash in this list :/
+                    panic(fmt.Errorf(
+                        "Found more than 1 length hash in a single list, " +
+                        "this is currently unsupported"))
                 }
             }
 			ssl.updateLookupMap(chunk)
