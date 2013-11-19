@@ -30,14 +30,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/willf/bloom"
 	"io"
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
-	"runtime/debug"
 )
 
 var SupportedLists map[string]bool = map[string]bool{
@@ -57,7 +58,7 @@ type SafeBrowsing struct {
 	Lists       map[string]*SafeBrowsingList
 	DataDir     string
 	request     func(string, string, bool) (*http.Response, error)
-	Logger		logger
+	Logger      logger
 }
 
 var Logger logger = new(DefaultLogger)
@@ -230,8 +231,9 @@ func (ss *SafeBrowsing) requestRedirectList() error {
 
 func (ss *SafeBrowsing) reset() {
 	for _, ssl := range ss.Lists {
-		// recreate the lookup map
-		ssl.LookupMap = make(map[HostHash]map[LookupHash]ChunkNum)
+		// recreate the bloom filters
+		ssl.InsertFilter = bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES)
+		ssl.SubFilter = bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES)
 		// kill off the chunks
 		ssl.ChunkRanges = map[ChunkType]string{
 			CHUNK_TYPE_ADD: "",
@@ -366,72 +368,64 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 	hostKey := ExtractHostKey(url)
 	hostKeyHash := HostHash(getHash(hostKey)[:4])
 	ss.Logger.Debug("Host hash: %s", hex.EncodeToString([]byte(hostKeyHash)))
-	for list, ssl := range ss.Lists {
-		hashes, exists := ssl.LookupMap[hostKeyHash]
-		if !exists {
-			ss.Logger.Debug("Host hash not found: %s", hex.EncodeToString([]byte(hostKeyHash)))
-			return "", false, nil
-		}
-		ss.Logger.Debug("Host hash found: " + hex.EncodeToString([]byte(hostKeyHash)))
-
-		urls, err := GenerateTestCandidates(url)
-		if err != nil {
-			return "", false, nil
-		}
-		ss.Logger.Debug("Checking %d iterations of url", len(urls))
-		for _, url := range urls {
+    urls, err := GenerateTestCandidates(url)
+    if err != nil {
+        return "", false, nil
+    }
+    ss.Logger.Debug("Checking %d iterations of url", len(urls))
+    for _, url := range urls {
+        for list, ssl := range ss.Lists {
 			// hash it up
 			ss.Logger.Debug("Hashing %s", url)
 			urlHash := getHash(url)
-			// build a list of hashes from long to short
-			prefixes := make([]LookupHash, 0, len(ssl.HashSizesBytes))
-			prefixes = append(prefixes, urlHash)
-			for size, _ := range ssl.HashSizesBytes {
-				prefix := urlHash[0:size]
-				ss.Logger.Debug("Generated Hash %s", hex.EncodeToString([]byte(prefix)))
-				prefixes = append(prefixes, prefix)
-			}
-			insertionSortHashLength(prefixes)
-			fullHashRequestList := make([]LookupHash, 0)
-			// now query them!
-			for _, hash := range prefixes {
-				//log.Debug("testing hash: %s", hex.EncodeToString([]byte(hash)))
-				if _, exists := hashes[hash]; exists {
-					// we got a hit! if it's already a full hash there's our answer
-					if len(hash) == 32 {
-						ss.Logger.Debug("Full length hash hit")
-						return list, true, nil
-					}
-					if !matchFullHash {
-						ss.Logger.Debug("Partial hash hit")
-						return list, false, nil
-					}
-					// have we have already asked for full hashes for this prefix?
-					if _, exists := ssl.FullHashRequested[hostKeyHash][hash]; exists {
-						ss.Logger.Debug("Full length hash miss")
-						return "", false, nil
-					}
-					// we matched a prefix and need to request a full hash
-					fullHashRequestList = append(fullHashRequestList, hash)
-				}
-			}
-			if len(fullHashRequestList) > 0 && !OfflineMode {
-				// request any required full hashes
-				err := ss.requestFullHashes(list, hostKeyHash, fullHashRequestList)
-				if err != nil {
-					return "", false, nil
-				}
-				// re-check for full hash hits.
-				for _, hash := range prefixes {
-					ss.Logger.Debug("Need to request full length hashes for %s",
-						hex.EncodeToString([]byte(hash)))
-					if len(hash) == 32 {
-						if _, exists := ssl.LookupMap[hostKeyHash][hash]; exists {
-							return list, true, nil
-						}
-					}
-				}
-			}
+
+            // look up full hash matches
+            if _, exists := ssl.FullHashes[hostKeyHash]; exists {
+                if _, exists := ssl.FullHashes[hostKeyHash][urlHash]; exists {
+                    return list, true, nil
+                }
+            }
+
+            // first ensure we don't have a match in the sub bloom filter
+            prefix := urlHash[0:ssl.HashPrefixLen]
+            hash := []byte(string(hostKeyHash) + string(prefix))
+            ss.Logger.Debug("testing hash: %s + %s = %s",
+                hex.EncodeToString([]byte(hostKeyHash)),
+                hex.EncodeToString([]byte(prefix)),
+                hex.EncodeToString([]byte(hash)))
+            if ssl.SubFilter.Test([]byte(hash)) {
+                ss.Logger.Debug("Found hash match in sub bloom filter")
+                return "", false, nil
+            }
+
+            // now see if there is a match in our insert list
+            if ssl.InsertFilter.Test([]byte(hash)) {
+                if !matchFullHash || OfflineMode {
+                    ss.Logger.Debug("Partial hash hit")
+                    return list, false, nil
+                }
+                // have we have already asked for full hashes for this prefix?
+                if _, exists := ssl.FullHashRequested[hostKeyHash][prefix]; exists {
+                    ss.Logger.Debug("Full length hash miss")
+                    return "", false, nil
+                }
+
+                // we matched a prefix and need to request a full hash
+                ss.Logger.Debug("Need to request full length hashes for %s",
+                    hex.EncodeToString([]byte(hash)))
+                err := ss.requestFullHashes(list, hostKeyHash, []LookupHash{prefix})
+                if err != nil {
+                    return "", false, nil
+                }
+
+                // re-check for full hash hit.
+                if _, exists := ssl.FullHashes[hostKeyHash]; exists {
+                    if _, exists := ssl.FullHashes[hostKeyHash][urlHash]; exists {
+                        return list, true, nil
+                    }
+                }
+
+            }
 		}
 	}
 

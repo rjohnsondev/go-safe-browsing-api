@@ -28,9 +28,16 @@ import (
 	"bufio"
 	"encoding/gob"
 	"fmt"
+	"github.com/willf/bloom"
 	"io"
 	"os"
 )
+
+// This calculated assuming a size of 500,000 entries
+// and a false-positive probability of 1.0E-20
+// thanks to http://hur.st/bloomfilter?n=500000&p=1.0E-20
+const BLOOM_FILTER_BITS = 50000000
+const BLOOM_FILTER_HASHES = 66
 
 type SafeBrowsingList struct {
 	Name          string
@@ -40,12 +47,14 @@ type SafeBrowsingList struct {
 
 	ChunkRanges map[ChunkType]string
 
-	HashSizesBytes map[int]bool
+    HashPrefixLen int
 	// We have the lookup map keyed by host hash, this may mean we have
 	// to do duplicated full has requests for the same hash prefix on
 	// different hosts, but that should be a pretty rare occurance.
-	LookupMap         map[HostHash]map[LookupHash]ChunkNum
+	InsertFilter      *bloom.BloomFilter
+	SubFilter         *bloom.BloomFilter
 	FullHashRequested map[HostHash]map[LookupHash]bool
+	FullHashes        map[HostHash]map[LookupHash]bool
 	EntryCount        int
 	Logger            logger
 }
@@ -55,9 +64,10 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 		Name:              name,
 		FileName:          filename,
 		DataRedirects:     make([]string, 0),
-		HashSizesBytes:    make(map[int]bool),
-		LookupMap:         make(map[HostHash]map[LookupHash]ChunkNum),
+		InsertFilter:      bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
+		SubFilter:         bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
 		FullHashRequested: make(map[HostHash]map[LookupHash]bool),
+		FullHashes:        make(map[HostHash]map[LookupHash]bool),
 		DeleteChunks:      make(map[ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
 	}
@@ -66,6 +76,7 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 	return ssl
 }
 
+// TODO(rjohnsondev): This must be made thread-safe now
 func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 
 	ssl.Logger.Info("Reloading %s", ssl.Name)
@@ -124,7 +135,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				subChunkIndexes[chunk.ChunkNum] = true
 			}
 			// apply this chunk.
-			newLookup = updateLookupMap(newLookup, chunk)
+			ssl.updateLookupMap(chunk)
 		}
 		if err != io.EOF {
 			return err
@@ -152,8 +163,18 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				subChunkIndexes[chunk.ChunkNum] = true
 			}
 			// apply this chunk.
-			ssl.HashSizesBytes[chunk.HashLen] = true
-			newLookup = updateLookupMap(newLookup, chunk)
+            if chunk.HashLen != 32 {
+                if ssl.HashPrefixLen != 0 {
+                    if ssl.HashPrefixLen != chunk.HashLen {
+                        // ERR, more than one length hash in this list :/
+                        panic(fmt.Errorf(
+                            "Found more than 1 length hash in a single list, " +
+                            "this is currently unsupported"))
+                    }
+                    ssl.HashPrefixLen = chunk.HashLen
+                }
+            }
+			ssl.updateLookupMap(chunk)
 		}
 	}
 
@@ -175,10 +196,9 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 		CHUNK_TYPE_ADD: buildChunkRanges(addChunkIndexes),
 		CHUNK_TYPE_SUB: buildChunkRanges(subChunkIndexes),
 	}
-	ssl.LookupMap = newLookup
 	ssl.DeleteChunks = make(map[ChunkType]map[ChunkNum]bool)
-	ssl.Logger.Info("Loaded %d existing add chunks and %d sub chunks " +
-					"(~ %d hashes, over %d hosts), deleted %d, added %d.",
+	ssl.Logger.Info("Loaded %d existing add chunks and %d sub chunks "+
+		"(~ %d hashes, over %d hosts), deleted %d, added %d.",
 		len(addChunkIndexes),
 		len(subChunkIndexes),
 		newEntryCount,
@@ -189,6 +209,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 	return nil
 }
 
+// TODO(rjohnsondev): This must be made thread-safe now
 func (ssl *SafeBrowsingList) loadDataFromRedirectLists() error {
 	if len(ssl.DataRedirects) < 1 {
 		ssl.Logger.Info("No pending updates available")
@@ -222,35 +243,59 @@ func (ssl *SafeBrowsingList) loadDataFromRedirectLists() error {
 	return ssl.load(newChunks)
 }
 
-func updateLookupMap(lookupMap map[HostHash]map[LookupHash]ChunkNum, chunk *Chunk) map[HostHash]map[LookupHash]ChunkNum {
+func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
 	for hostHashString, hashes := range chunk.Hashes {
 		hostHash := HostHash(hostHashString)
 		for _, hash := range hashes {
-			switch chunk.ChunkType {
-			case CHUNK_TYPE_ADD:
-				if _, exists := lookupMap[hostHash]; !exists {
-					lookupMap[hostHash] = make(map[LookupHash]ChunkNum)
-				}
-				lookupMap[hostHash][hash] = chunk.ChunkNum
-			case CHUNK_TYPE_SUB:
-				if _, exists := lookupMap[hostHash]; !exists {
-					continue
-				}
-				// TODO(rjohnsondev): this is kinda slow and rubbish...
-				for fullTestHash, _ := range lookupMap[hostHash] {
-					testHash := fullTestHash
-					if len(testHash) > len(hash) {
-						testHash = testHash[0:len(hash)]
-					}
-					if testHash == hash {
-						delete(lookupMap[hostHash], fullTestHash)
-					}
-				}
-				if len(lookupMap[hostHash]) == 0 {
-					delete(lookupMap, hostHash)
-				}
-			}
+            if len(hash) == 32 {
+                // we are a full-length hash
+                switch chunk.ChunkType {
+                case CHUNK_TYPE_ADD:
+                    if _, exists := ssl.FullHashes[hostHash]; !exists {
+                        ssl.FullHashes[hostHash] = make(map[LookupHash]bool)
+                    }
+                    ssl.FullHashes[hostHash][hash] = true
+                case CHUNK_TYPE_SUB:
+                    if _, exists := ssl.FullHashes[hostHash]; !exists {
+                        continue
+                    }
+                    for fullTestHash, _ := range ssl.FullHashes[hostHash] {
+                        testHash := fullTestHash
+                        if testHash == hash {
+                            delete(ssl.FullHashes[hostHash], fullTestHash)
+                        }
+                    }
+                    if len(ssl.FullHashes[hostHash]) == 0 {
+                        delete(ssl.FullHashes, hostHash)
+                    }
+                }
+
+            } else {
+                // we are a hash-prefix
+                lookup := []byte(string(hostHash) + string(hash))
+                switch chunk.ChunkType {
+                case CHUNK_TYPE_ADD:
+                    ssl.InsertFilter.Add(lookup)
+                case CHUNK_TYPE_SUB:
+                    ssl.SubFilter.Add(lookup)
+                    // we have to remove any full hashes that match a sub-prefix
+                    if _, exists := ssl.FullHashes[hostHash]; !exists {
+                        continue
+                    }
+                    for fullTestHash, _ := range ssl.FullHashes[hostHash] {
+                        testHash := fullTestHash
+                        if len(testHash) > len(hash) {
+                            testHash = testHash[0:len(hash)]
+                        }
+                        if testHash == hash {
+                            delete(ssl.FullHashes[hostHash], fullTestHash)
+                        }
+                    }
+                    if len(ssl.FullHashes[hostHash]) == 0 {
+                        delete(ssl.FullHashes, hostHash)
+                    }
+                }
+            }
 		}
 	}
-	return lookupMap
 }

@@ -13,6 +13,8 @@ Installation
 
 This should do the trick:
 
+    go get github.com/willf/bitset
+    go get github.com/willf/bloom
     go get github.com/rjohnsondev/go-safe-browsing-api
 
 Usage
