@@ -96,6 +96,10 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err
 	}
 
 	// normal mode, contact the server for updates, etc.
+	err = ss.loadExistingData()
+	if err != nil {
+		return nil, err
+	}
 	err = ss.update()
 	if err != nil {
 		return nil, err
@@ -132,7 +136,7 @@ func (ss *SafeBrowsing) reloadLoop() {
 	}
 }
 
-func (ss *SafeBrowsing) update() error {
+func (ss *SafeBrowsing) loadExistingData() error {
 	ss.Logger.Info("Requesting list of lists from server...")
 	err := ss.requestSafeBrowsingLists()
 	if err != nil {
@@ -147,6 +151,10 @@ func (ss *SafeBrowsing) update() error {
 		}
 		debug.FreeOSMemory()
 	}
+	return nil
+}
+
+func (ss *SafeBrowsing) update() error {
 
 	ss.Logger.Info("Requesting updates...")
 	if err := ss.requestRedirectList(); err != nil {
@@ -432,8 +440,8 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
                         return list, true, nil
                     }
                 }
-				ssl.updateLock.RUnlock()
             }
+			ssl.updateLock.RUnlock()
 		}
 	}
 
