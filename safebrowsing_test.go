@@ -37,6 +37,7 @@ import (
 	"net/http"
 	"github.com/willf/bloom"
 	//"strings"
+	"sync"
 )
 
 type MockReadCloser struct {
@@ -180,6 +181,7 @@ func TestUrlListed(t *testing.T) {
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
 				},
 				Logger:	 new(DefaultLogger),
+				updateLock:        new(sync.RWMutex),
 			},
 		},
 		Logger:	 new(DefaultLogger),

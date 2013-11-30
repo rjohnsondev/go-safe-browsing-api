@@ -375,6 +375,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
     ss.Logger.Debug("Checking %d iterations of url", len(urls))
     for _, url := range urls {
         for list, ssl := range ss.Lists {
+			ssl.updateLock.RLock()
 			// hash it up
 			ss.Logger.Debug("Hashing %s", url)
 			urlHash := getHash(url)
@@ -382,6 +383,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
             // look up full hash matches
             if _, exists := ssl.FullHashes[hostKeyHash]; exists {
                 if _, exists := ssl.FullHashes[hostKeyHash][urlHash]; exists {
+					ssl.updateLock.RUnlock()
                     return list, true, nil
                 }
             }
@@ -395,6 +397,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
                 hex.EncodeToString([]byte(hash)))
             if ssl.SubFilter.Test([]byte(hash)) {
                 ss.Logger.Debug("Found hash match in sub bloom filter")
+				ssl.updateLock.RUnlock()
                 return "", false, nil
             }
 
@@ -402,29 +405,34 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
             if ssl.InsertFilter.Test([]byte(hash)) {
                 if !matchFullHash || OfflineMode {
                     ss.Logger.Debug("Partial hash hit")
+					ssl.updateLock.RUnlock()
                     return list, false, nil
                 }
                 // have we have already asked for full hashes for this prefix?
                 if _, exists := ssl.FullHashRequested[hostKeyHash][prefix]; exists {
                     ss.Logger.Debug("Full length hash miss")
+					ssl.updateLock.RUnlock()
                     return "", false, nil
                 }
 
                 // we matched a prefix and need to request a full hash
                 ss.Logger.Debug("Need to request full length hashes for %s",
                     hex.EncodeToString([]byte(hash)))
+				ssl.updateLock.RUnlock()
                 err := ss.requestFullHashes(list, hostKeyHash, []LookupHash{prefix})
                 if err != nil {
                     return "", false, nil
                 }
+				ssl.updateLock.RLock()
 
                 // re-check for full hash hit.
                 if _, exists := ssl.FullHashes[hostKeyHash]; exists {
                     if _, exists := ssl.FullHashes[hostKeyHash][urlHash]; exists {
+						ssl.updateLock.RUnlock()
                         return list, true, nil
                     }
                 }
-
+				ssl.updateLock.RUnlock()
             }
 		}
 	}

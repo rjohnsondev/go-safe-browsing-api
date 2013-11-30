@@ -31,6 +31,7 @@ import (
 	"github.com/willf/bloom"
 	"io"
 	"os"
+	"sync"
 )
 
 // This calculated assuming a size of 500,000 entries
@@ -57,6 +58,7 @@ type SafeBrowsingList struct {
 	FullHashes        map[HostHash]map[LookupHash]bool
 	EntryCount        int
 	Logger            logger
+	updateLock        *sync.RWMutex
 }
 
 func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
@@ -70,16 +72,16 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 		FullHashes:        make(map[HostHash]map[LookupHash]bool),
 		DeleteChunks:      make(map[ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
+		updateLock:        new(sync.RWMutex),
 	}
 	ssl.DeleteChunks[CHUNK_TYPE_ADD] = make(map[ChunkNum]bool)
 	ssl.DeleteChunks[CHUNK_TYPE_SUB] = make(map[ChunkNum]bool)
 	return ssl
 }
 
-// TODO(rjohnsondev): This must be made thread-safe now
 func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
-
 	ssl.Logger.Info("Reloading %s", ssl.Name)
+	ssl.updateLock.Lock()
 
 	//  get the input stream
 	f, err := os.Open(ssl.FileName)
@@ -94,6 +96,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 	// open the file again for output
 	fOut, err := os.Create(ssl.FileName + ".tmp")
 	if err != nil {
+		ssl.updateLock.Unlock()
 		return fmt.Errorf("Error opening file: %s", err)
 	}
 	enc := gob.NewEncoder(fOut)
@@ -124,6 +127,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 			if enc != nil {
 				err = enc.Encode(chunk)
 				if err != nil {
+					ssl.updateLock.Unlock()
 					return err
 				}
 			}
@@ -138,6 +142,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 			ssl.updateLookupMap(chunk)
 		}
 		if err != io.EOF {
+			ssl.updateLock.Unlock()
 			return err
 		}
 	}
@@ -152,6 +157,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 			if enc != nil {
 				err = enc.Encode(chunk)
 				if err != nil {
+					ssl.updateLock.Unlock()
 					return err
 				}
 			}
@@ -184,11 +190,13 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 		fOut.Close()
 		err = os.Remove(ssl.FileName)
 		if err != nil {
+			ssl.updateLock.Unlock()
 			return err
 		}
 	}
 	err = os.Rename(ssl.FileName+".tmp", ssl.FileName)
 	if err != nil {
+		ssl.updateLock.Unlock()
 		return err
 	}
 
@@ -206,10 +214,10 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 		deletedChunkCount,
 		len(newChunks),
 	)
+	ssl.updateLock.Unlock()
 	return nil
 }
 
-// TODO(rjohnsondev): This must be made thread-safe now
 func (ssl *SafeBrowsingList) loadDataFromRedirectLists() error {
 	if len(ssl.DataRedirects) < 1 {
 		ssl.Logger.Info("No pending updates available")
@@ -244,6 +252,7 @@ func (ssl *SafeBrowsingList) loadDataFromRedirectLists() error {
 }
 
 func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
+	
 	for hostHashString, hashes := range chunk.Hashes {
 		hostHash := HostHash(hostHashString)
 		for _, hash := range hashes {
