@@ -60,7 +60,7 @@ func TestLoad(t *testing.T) {
 		},
 	}
 	ssl.load([]*Chunk{chunk})
-	if !ssl.InsertFilter.Test([]byte("testtest")) {
+	if !ssl.Lookup.Get("testtest") {
 		t.Errorf("Hashes were not added to LookupMap")
 		return
 	}
@@ -76,7 +76,7 @@ func TestLoad(t *testing.T) {
 		},
 	}
 	ssl.load([]*Chunk{chunk})
-	if !ssl.SubFilter.Test([]byte("testtest")) {
+	if ssl.Lookup.Get("testtest") {
 		t.Errorf("Hashes were not deleted from LookupMap")
 		return
 	}
@@ -122,8 +122,7 @@ func TestLoad(t *testing.T) {
 	ssl.load(nil)
 
 	// should have 2 of the entries in there again.
-	if len(ssl.FullHashes) != 1 ||
-		len(ssl.FullHashes[HostHash("test")]) != 2 {
+	if len(ssl.FullHashes) != 2 {
 		t.Errorf("Hashes were not deleted from LookupMap")
 		return
 	}

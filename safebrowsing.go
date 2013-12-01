@@ -30,7 +30,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/willf/bloom"
 	"io"
 	"math/rand"
 	"net/http"
@@ -240,8 +239,8 @@ func (ss *SafeBrowsing) requestRedirectList() error {
 func (ss *SafeBrowsing) reset() {
 	for _, ssl := range ss.Lists {
 		// recreate the bloom filters
-		ssl.InsertFilter = bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES)
-		ssl.SubFilter = bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES)
+		//ssl.InsertFilter = bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES)
+		ssl.Lookup = NewTrie()
 		// kill off the chunks
 		ssl.ChunkRanges = map[ChunkType]string{
 			CHUNK_TYPE_ADD: "",
@@ -395,12 +394,6 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
                 hex.EncodeToString([]byte(hostKeyHash)),
                 hex.EncodeToString([]byte(prefix)),
                 hex.EncodeToString([]byte(hash)))
-			ss.Logger.Debug("Number of re-seen hashes: %d", len(ssl.ReInsertedFilter))
-            if ssl.SubFilter.Test([]byte(hash)) && !ssl.ReInsertedFilter[hash] {
-                ss.Logger.Debug("Found hash match in sub bloom filter")
-				ssl.updateLock.RUnlock()
-                return "", false, nil
-            }
 
             // look up full hash matches
             fullHash := LookupHash(string(hostKeyHash) + string(urlHash))
@@ -410,7 +403,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
             }
 
             // now see if there is a match in our insert list
-            if ssl.InsertFilter.Test([]byte(hash)) {
+            if ssl.Lookup.Get(string(hash)) {
                 if !matchFullHash || OfflineMode {
                     ss.Logger.Debug("Partial hash hit")
 					ssl.updateLock.RUnlock()

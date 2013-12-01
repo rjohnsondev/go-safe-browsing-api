@@ -28,7 +28,6 @@ import (
 	"bufio"
 	"encoding/gob"
 	"fmt"
-	"github.com/willf/bloom"
 	"io"
 	"os"
 	"sync"
@@ -52,9 +51,7 @@ type SafeBrowsingList struct {
 	// We have the lookup map keyed by host hash, this may mean we have
 	// to do duplicated full has requests for the same hash prefix on
 	// different hosts, but that should be a pretty rare occurance.
-	InsertFilter      *bloom.BloomFilter
-	SubFilter         *bloom.BloomFilter
-	ReInsertedFilter  map[LookupHash]bool
+	Lookup            *HatTrie
 	FullHashRequested map[LookupHash]bool
 	FullHashes        map[LookupHash]bool
 	EntryCount        int
@@ -67,9 +64,7 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 		Name:              name,
 		FileName:          filename,
 		DataRedirects:     make([]string, 0),
-		InsertFilter:      bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
-		SubFilter:         bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
-		ReInsertedFilter:  make(map[LookupHash]bool),
+		Lookup:            NewTrie(),
 		FullHashRequested: make(map[LookupHash]bool),
 		FullHashes:        make(map[LookupHash]bool),
 		DeleteChunks:      make(map[ChunkType]map[ChunkNum]bool),
@@ -250,7 +245,7 @@ func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
 				lookupHash := LookupHash(string(hostHash)+string(hash))
                 switch chunk.ChunkType {
                 case CHUNK_TYPE_ADD:
-                    ssl.FullHashes[lookupHash] = true
+                    ssl.Lookup.Set(string(lookupHash))
                 case CHUNK_TYPE_SUB:
                     for fullTestHash, _ := range ssl.FullHashes {
                         if fullTestHash == lookupHash {
@@ -274,16 +269,9 @@ func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
                 lookup := []byte(string(hostHash) + string(hash))
                 switch chunk.ChunkType {
                 case CHUNK_TYPE_ADD:
-					if ssl.SubFilter.Test(lookup) {
-						// must be added to our more expensive hashmap
-						ssl.ReInsertedFilter[LookupHash(lookup)] = true
-					}
-                    ssl.InsertFilter.Add(lookup)
+                    ssl.Lookup.Set(string(lookup))
                 case CHUNK_TYPE_SUB:
-					if _, exists := ssl.ReInsertedFilter[LookupHash(lookup)]; exists {
-						delete(ssl.ReInsertedFilter, LookupHash(lookup))
-					}
-                    ssl.SubFilter.Add(lookup)
+                    ssl.Lookup.Delete(string(lookup))
                     // we have to remove any full hashes that match a sub-prefix
                     for fullTestHash, _ := range ssl.FullHashes {
                         if fullTestHash[0:len(lookup)] == LookupHash(lookup) {

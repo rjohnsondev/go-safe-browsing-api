@@ -35,7 +35,7 @@ import (
 	"encoding/hex"
 	"io/ioutil"
 	"net/http"
-	"github.com/willf/bloom"
+	//"github.com/willf/bloom"
 	//"strings"
 	"sync"
 )
@@ -172,11 +172,9 @@ func TestUrlListed(t *testing.T) {
 				Name:     "googpub-phish-shavar",
 				FileName: tmpDirName + "/googpub-phish-shavar.dat",
 				HashPrefixLen: 4,
-                InsertFilter:      bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
-                SubFilter:         bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
-				ReInsertedFilter:  make(map[LookupHash]bool),
-                FullHashRequested: make(map[HostHash]map[LookupHash]bool),
-                FullHashes:        make(map[HostHash]map[LookupHash]bool),
+                Lookup:      NewTrie(),
+                FullHashRequested: make(map[LookupHash]bool),
+                FullHashes:        make(map[LookupHash]bool),
 				DeleteChunks: map[ChunkType]map[ChunkNum]bool{
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
@@ -188,7 +186,7 @@ func TestUrlListed(t *testing.T) {
 		Logger:	 new(DefaultLogger),
 		request: NewMockRequest(string(chunkData)),
 	}
-    ss.Lists["googpub-phish-shavar"].InsertFilter.Add([]byte(string(hostHash) + string(hostHash)))
+    ss.Lists["googpub-phish-shavar"].Lookup.Set(string(hostHash) + string(hostHash))
 
 	url := "http://test.com/"
 	result, _, err := ss.MightBeListed(url)
