@@ -174,6 +174,7 @@ func TestUrlListed(t *testing.T) {
 				HashPrefixLen: 4,
                 InsertFilter:      bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
                 SubFilter:         bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
+				ReInsertedFilter:  make(map[LookupHash]bool),
                 FullHashRequested: make(map[HostHash]map[LookupHash]bool),
                 FullHashes:        make(map[HostHash]map[LookupHash]bool),
 				DeleteChunks: map[ChunkType]map[ChunkNum]bool{

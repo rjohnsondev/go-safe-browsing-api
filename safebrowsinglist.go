@@ -54,8 +54,9 @@ type SafeBrowsingList struct {
 	// different hosts, but that should be a pretty rare occurance.
 	InsertFilter      *bloom.BloomFilter
 	SubFilter         *bloom.BloomFilter
-	FullHashRequested map[HostHash]map[LookupHash]bool
-	FullHashes        map[HostHash]map[LookupHash]bool
+	ReInsertedFilter  map[LookupHash]bool
+	FullHashRequested map[LookupHash]bool
+	FullHashes        map[LookupHash]bool
 	EntryCount        int
 	Logger            logger
 	updateLock        *sync.RWMutex
@@ -68,8 +69,9 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 		DataRedirects:     make([]string, 0),
 		InsertFilter:      bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
 		SubFilter:         bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES),
-		FullHashRequested: make(map[HostHash]map[LookupHash]bool),
-		FullHashes:        make(map[HostHash]map[LookupHash]bool),
+		ReInsertedFilter:  make(map[LookupHash]bool),
+		FullHashRequested: make(map[LookupHash]bool),
+		FullHashes:        make(map[LookupHash]bool),
 		DeleteChunks:      make(map[ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
 		updateLock:        new(sync.RWMutex),
@@ -168,18 +170,6 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 			case CHUNK_TYPE_SUB:
 				subChunkIndexes[chunk.ChunkNum] = true
 			}
-			// apply this chunk.
-            if chunk.HashLen != 32 {
-                if ssl.HashPrefixLen == 0 {
-                    ssl.HashPrefixLen = chunk.HashLen
-
-                } else if ssl.HashPrefixLen != chunk.HashLen {
-                    // ERR, more than one length hash in this list :/
-                    panic(fmt.Errorf(
-                        "Found more than 1 length hash in a single list, " +
-                        "this is currently unsupported"))
-                }
-            }
 			ssl.updateLookupMap(chunk)
 		}
 	}
@@ -252,56 +242,53 @@ func (ssl *SafeBrowsingList) loadDataFromRedirectLists() error {
 }
 
 func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
-	
 	for hostHashString, hashes := range chunk.Hashes {
 		hostHash := HostHash(hostHashString)
 		for _, hash := range hashes {
             if len(hash) == 32 {
                 // we are a full-length hash
+				lookupHash := LookupHash(string(hostHash)+string(hash))
                 switch chunk.ChunkType {
                 case CHUNK_TYPE_ADD:
-                    if _, exists := ssl.FullHashes[hostHash]; !exists {
-                        ssl.FullHashes[hostHash] = make(map[LookupHash]bool)
-                    }
-                    ssl.FullHashes[hostHash][hash] = true
+                    ssl.FullHashes[lookupHash] = true
                 case CHUNK_TYPE_SUB:
-                    if _, exists := ssl.FullHashes[hostHash]; !exists {
-                        continue
-                    }
-                    for fullTestHash, _ := range ssl.FullHashes[hostHash] {
-                        testHash := fullTestHash
-                        if testHash == hash {
-                            delete(ssl.FullHashes[hostHash], fullTestHash)
+                    for fullTestHash, _ := range ssl.FullHashes {
+                        if fullTestHash == lookupHash {
+                            delete(ssl.FullHashes, fullTestHash)
                         }
-                    }
-                    if len(ssl.FullHashes[hostHash]) == 0 {
-                        delete(ssl.FullHashes, hostHash)
                     }
                 }
 
             } else {
+				// update the hash prefix
+                if ssl.HashPrefixLen == 0 {
+                    ssl.HashPrefixLen = chunk.HashLen
+                } else if ssl.HashPrefixLen != chunk.HashLen {
+                    // ERR, more than one length hash in this list :/
+                    panic(fmt.Errorf(
+                        "Found more than 1 length hash in a single list, " +
+                        "this is currently unsupported"))
+                }
+
                 // we are a hash-prefix
                 lookup := []byte(string(hostHash) + string(hash))
                 switch chunk.ChunkType {
                 case CHUNK_TYPE_ADD:
+					if ssl.SubFilter.Test(lookup) {
+						// must be added to our more expensive hashmap
+						ssl.ReInsertedFilter[LookupHash(lookup)] = true
+					}
                     ssl.InsertFilter.Add(lookup)
                 case CHUNK_TYPE_SUB:
+					if _, exists := ssl.ReInsertedFilter[LookupHash(lookup)]; exists {
+						delete(ssl.ReInsertedFilter, LookupHash(lookup))
+					}
                     ssl.SubFilter.Add(lookup)
                     // we have to remove any full hashes that match a sub-prefix
-                    if _, exists := ssl.FullHashes[hostHash]; !exists {
-                        continue
-                    }
-                    for fullTestHash, _ := range ssl.FullHashes[hostHash] {
-                        testHash := fullTestHash
-                        if len(testHash) > len(hash) {
-                            testHash = testHash[0:len(hash)]
+                    for fullTestHash, _ := range ssl.FullHashes {
+                        if fullTestHash[0:len(lookup)] == LookupHash(lookup) {
+                            delete(ssl.FullHashes, LookupHash(fullTestHash))
                         }
-                        if testHash == hash {
-                            delete(ssl.FullHashes[hostHash], fullTestHash)
-                        }
-                    }
-                    if len(ssl.FullHashes[hostHash]) == 0 {
-                        delete(ssl.FullHashes, hostHash)
                     }
                 }
             }
