@@ -404,6 +404,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
             }
 
             // now see if there is a match in our prefix trie
+            keysToLookupMap := make(map[LookupHash]bool)
             if ssl.Lookup.Get(string(lookupHash)) {
                 if !matchFullHash || OfflineMode {
                     ss.Logger.Debug("Partial hash hit")
@@ -411,7 +412,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
                     return list, false, nil
                 }
                 // have we have already asked for full hashes for this prefix?
-                if ssl.FullHashRequested.Get(string(fullLookupHash)) {
+                if ssl.FullHashRequested.Get(string(lookupHash)) {
                     ss.Logger.Debug("Full length hash miss")
 					ssl.updateLock.RUnlock()
                     return "", false, nil
@@ -419,9 +420,13 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 
                 // we matched a prefix and need to request a full hash
                 ss.Logger.Debug("Need to request full length hashes for %s",
-                    hex.EncodeToString([]byte(lookupHash)))
+                    hex.EncodeToString([]byte(prefix)))
+
+                keysToLookupMap[prefix] = true
+            }
+            if len(keysToLookupMap) > 0 {
 				ssl.updateLock.RUnlock()
-                err := ss.requestFullHashes(list, hostKeyHash, []LookupHash{prefix})
+                err := ss.requestFullHashes(list, hostKeyHash, keysToLookupMap)
                 if err != nil {
                     return "", false, nil
                 }
@@ -433,6 +438,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 					return list, true, nil
                 }
             }
+
 			ssl.updateLock.RUnlock()
 		}
 	}
@@ -440,19 +446,22 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 	return "", false, nil
 }
 
-func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes []LookupHash) error {
+func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes map[LookupHash]bool) error {
 	if len(prefixes) == 0 {
 		return nil
 	}
 	query := "%d:%d\n%s"
 	buf := bytes.Buffer{}
-	firstPrefixLen := len(prefixes[0])
-	for _, prefix := range prefixes {
+	firstPrefixLen := 0
+	for prefix, _ := range prefixes {
 		_, err := buf.Write([]byte(prefix))
 		if err != nil {
 			return err
 		}
-		if firstPrefixLen != len(prefixes[0]) {
+        if firstPrefixLen == 0 {
+            firstPrefixLen = len(prefix)
+        }
+		if firstPrefixLen != len(prefix) {
 			return fmt.Errorf("Attempted to used variable length hashes in lookup!")
 		}
 	}
@@ -473,7 +482,7 @@ func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes [
 			response.StatusCode)
 	}
 	// mark these prefxes as having been requested
-	for _, prefix := range prefixes {
+	for prefix, _ := range prefixes {
 		ss.Lists[list].FullHashRequested.Set(string(host)+string(prefix))
 	}
 	return ss.processFullHashes(list, response.Body, host)

@@ -27,6 +27,7 @@ package safebrowsing
 import (
 	"bufio"
 	"encoding/gob"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -245,7 +246,9 @@ func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
 				lookupHash := string(hostHash)+string(hash)
                 switch chunk.ChunkType {
                 case CHUNK_TYPE_ADD:
-                    ssl.Lookup.Set(lookupHash)
+                    ssl.Logger.Debug("Adding full length hash: %s",
+                        hex.EncodeToString([]byte(lookupHash)))
+                    ssl.FullHashes.Set(lookupHash)
                 case CHUNK_TYPE_SUB:
                     ssl.FullHashes.Delete(lookupHash)
                 }
