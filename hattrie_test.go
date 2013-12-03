@@ -30,3 +30,20 @@ func TestDeleteFromTrie(t *testing.T) {
 		t.Fatal("Unset value returned as true")
 	}
 }
+
+func TestIterator(t *testing.T) {
+	trie := NewTrie()
+	trie.Set("a")
+	trie.Set("ab")
+	trie.Set("abc")
+	i := trie.Iterator();
+	if key := i.Next(); key != "a" {
+		t.Fatal("iterator failed")
+	}
+	if key := i.Next(); key != "ab" {
+		t.Fatal("iterator failed")
+	}
+	if key := i.Next(); key != "abc" {
+		t.Fatal("iterator failed")
+	}
+}
