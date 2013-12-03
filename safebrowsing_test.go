@@ -205,8 +205,8 @@ func TestUrlListed(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	if result != "" {
-		t.Error("Full hash was found :/")
+	if result == "" {
+		t.Error("Full hash was not found :/")
 		return
 	}
 	os.RemoveAll(tmpDirName)
