@@ -173,8 +173,8 @@ func TestUrlListed(t *testing.T) {
 				FileName: tmpDirName + "/googpub-phish-shavar.dat",
 				HashPrefixLen: 4,
                 Lookup:      NewTrie(),
-                FullHashRequested: make(map[LookupHash]bool),
-                FullHashes:        make(map[LookupHash]bool),
+                FullHashRequested: NewTrie(),
+                FullHashes:        NewTrie(),
 				DeleteChunks: map[ChunkType]map[ChunkNum]bool{
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
@@ -205,8 +205,8 @@ func TestUrlListed(t *testing.T) {
 		t.Error(err)
 		return
 	}
-	if result == "" {
-		t.Error("Hash was not found :/")
+	if result != "" {
+		t.Error("Full hash was found :/")
 		return
 	}
 	os.RemoveAll(tmpDirName)

@@ -52,8 +52,8 @@ type SafeBrowsingList struct {
 	// to do duplicated full has requests for the same hash prefix on
 	// different hosts, but that should be a pretty rare occurance.
 	Lookup            *HatTrie
-	FullHashRequested map[LookupHash]bool
-	FullHashes        map[LookupHash]bool
+	FullHashRequested *HatTrie
+	FullHashes        *HatTrie
 	EntryCount        int
 	Logger            logger
 	updateLock        *sync.RWMutex
@@ -65,8 +65,8 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 		FileName:          filename,
 		DataRedirects:     make([]string, 0),
 		Lookup:            NewTrie(),
-		FullHashRequested: make(map[LookupHash]bool),
-		FullHashes:        make(map[LookupHash]bool),
+		FullHashRequested: NewTrie(),
+		FullHashes:        NewTrie(),
 		DeleteChunks:      make(map[ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
 		updateLock:        new(sync.RWMutex),
@@ -242,16 +242,12 @@ func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
 		for _, hash := range hashes {
             if len(hash) == 32 {
                 // we are a full-length hash
-				lookupHash := LookupHash(string(hostHash)+string(hash))
+				lookupHash := string(hostHash)+string(hash)
                 switch chunk.ChunkType {
                 case CHUNK_TYPE_ADD:
-                    ssl.Lookup.Set(string(lookupHash))
+                    ssl.Lookup.Set(lookupHash)
                 case CHUNK_TYPE_SUB:
-                    for fullTestHash, _ := range ssl.FullHashes {
-                        if fullTestHash == lookupHash {
-                            delete(ssl.FullHashes, fullTestHash)
-                        }
-                    }
+                    ssl.FullHashes.Delete(lookupHash)
                 }
 
             } else {
@@ -266,16 +262,17 @@ func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
                 }
 
                 // we are a hash-prefix
-                lookup := []byte(string(hostHash) + string(hash))
+                lookup := string(hostHash) + string(hash)
                 switch chunk.ChunkType {
                 case CHUNK_TYPE_ADD:
-                    ssl.Lookup.Set(string(lookup))
+                    ssl.Lookup.Set(lookup)
                 case CHUNK_TYPE_SUB:
-                    ssl.Lookup.Delete(string(lookup))
-                    // we have to remove any full hashes that match a sub-prefix
-                    for fullTestHash, _ := range ssl.FullHashes {
-                        if fullTestHash[0:len(lookup)] == LookupHash(lookup) {
-                            delete(ssl.FullHashes, LookupHash(fullTestHash))
+                    ssl.Lookup.Delete(lookup)
+                    i := ssl.FullHashes.Iterator()
+                    for key := i.Next(); key != ""; key = i.Next() {
+                        keyPrefix := key[0:len(lookup)]
+                        if keyPrefix == lookup {
+                            ssl.FullHashes.Delete(key)
                         }
                     }
                 }
