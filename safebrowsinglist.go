@@ -104,7 +104,6 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 	subChunkIndexes := make(map[ChunkNum]bool)
 
 	// reset the lookup map
-	newLookup := make(map[HostHash]map[LookupHash]ChunkNum)
 	newEntryCount := 0
 
 	deletedChunkCount := 0
@@ -196,7 +195,6 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 		len(addChunkIndexes),
 		len(subChunkIndexes),
 		newEntryCount,
-		len(newLookup),
 		deletedChunkCount,
 		len(newChunks),
 	)
