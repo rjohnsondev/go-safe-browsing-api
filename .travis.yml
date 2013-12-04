@@ -1,8 +1,8 @@
 language: go
 go:
-    - 1.1
-before_install:
-    - go get github.com/axw/gocov/gocov
-    - go get github.com/mattn/goveralls
+    - 1.2
+install:
+    - sudo apt-get install dh-autoreconf
+    - (git clone git@github.com:dcjones/hat-trie.git && cd hat-trie && autoreconf -i && ./configure --prefix=/usr && sudo make install)
 script:
     - $HOME/gopath/bin/goveralls nQ6xM1UC8iomu6dXVZ3qDTz9hqRiQqwDW
