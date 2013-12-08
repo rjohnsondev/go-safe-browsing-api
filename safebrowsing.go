@@ -34,10 +34,10 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
-	"runtime/debug"
 )
 
 var SupportedLists map[string]bool = map[string]bool{
@@ -57,7 +57,7 @@ type SafeBrowsing struct {
 	Lists       map[string]*SafeBrowsingList
 	DataDir     string
 	request     func(string, string, bool) (*http.Response, error)
-	Logger		logger
+	Logger      logger
 }
 
 var Logger logger = new(DefaultLogger)
@@ -95,6 +95,10 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err
 	}
 
 	// normal mode, contact the server for updates, etc.
+	err = ss.loadExistingData()
+	if err != nil {
+		return nil, err
+	}
 	err = ss.update()
 	if err != nil {
 		return nil, err
@@ -131,7 +135,7 @@ func (ss *SafeBrowsing) reloadLoop() {
 	}
 }
 
-func (ss *SafeBrowsing) update() error {
+func (ss *SafeBrowsing) loadExistingData() error {
 	ss.Logger.Info("Requesting list of lists from server...")
 	err := ss.requestSafeBrowsingLists()
 	if err != nil {
@@ -146,6 +150,10 @@ func (ss *SafeBrowsing) update() error {
 		}
 		debug.FreeOSMemory()
 	}
+	return nil
+}
+
+func (ss *SafeBrowsing) update() error {
 
 	ss.Logger.Info("Requesting updates...")
 	if err := ss.requestRedirectList(); err != nil {
@@ -230,8 +238,9 @@ func (ss *SafeBrowsing) requestRedirectList() error {
 
 func (ss *SafeBrowsing) reset() {
 	for _, ssl := range ss.Lists {
-		// recreate the lookup map
-		ssl.LookupMap = make(map[HostHash]map[LookupHash]ChunkNum)
+		// recreate the bloom filters
+		//ssl.InsertFilter = bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES)
+		ssl.Lookup = NewTrie()
 		// kill off the chunks
 		ssl.ChunkRanges = map[ChunkType]string{
 			CHUNK_TYPE_ADD: "",
@@ -366,91 +375,93 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 	hostKey := ExtractHostKey(url)
 	hostKeyHash := HostHash(getHash(hostKey)[:4])
 	ss.Logger.Debug("Host hash: %s", hex.EncodeToString([]byte(hostKeyHash)))
-	for list, ssl := range ss.Lists {
-		hashes, exists := ssl.LookupMap[hostKeyHash]
-		if !exists {
-			ss.Logger.Debug("Host hash not found: %s", hex.EncodeToString([]byte(hostKeyHash)))
-			return "", false, nil
-		}
-		ss.Logger.Debug("Host hash found: " + hex.EncodeToString([]byte(hostKeyHash)))
-
-		urls, err := GenerateTestCandidates(url)
-		if err != nil {
-			return "", false, nil
-		}
-		ss.Logger.Debug("Checking %d iterations of url", len(urls))
-		for _, url := range urls {
+    urls, err := GenerateTestCandidates(url)
+    if err != nil {
+        return "", false, nil
+    }
+    ss.Logger.Debug("Checking %d iterations of url", len(urls))
+    for _, url := range urls {
+        for list, ssl := range ss.Lists {
+			ssl.updateLock.RLock()
 			// hash it up
 			ss.Logger.Debug("Hashing %s", url)
 			urlHash := getHash(url)
-			// build a list of hashes from long to short
-			prefixes := make([]LookupHash, 0, len(ssl.HashSizesBytes))
-			prefixes = append(prefixes, urlHash)
-			for size, _ := range ssl.HashSizesBytes {
-				prefix := urlHash[0:size]
-				ss.Logger.Debug("Generated Hash %s", hex.EncodeToString([]byte(prefix)))
-				prefixes = append(prefixes, prefix)
-			}
-			insertionSortHashLength(prefixes)
-			fullHashRequestList := make([]LookupHash, 0)
-			// now query them!
-			for _, hash := range prefixes {
-				//log.Debug("testing hash: %s", hex.EncodeToString([]byte(hash)))
-				if _, exists := hashes[hash]; exists {
-					// we got a hit! if it's already a full hash there's our answer
-					if len(hash) == 32 {
-						ss.Logger.Debug("Full length hash hit")
-						return list, true, nil
-					}
-					if !matchFullHash {
-						ss.Logger.Debug("Partial hash hit")
-						return list, false, nil
-					}
-					// have we have already asked for full hashes for this prefix?
-					if _, exists := ssl.FullHashRequested[hostKeyHash][hash]; exists {
-						ss.Logger.Debug("Full length hash miss")
-						return "", false, nil
-					}
-					// we matched a prefix and need to request a full hash
-					fullHashRequestList = append(fullHashRequestList, hash)
-				}
-			}
-			if len(fullHashRequestList) > 0 && !OfflineMode {
-				// request any required full hashes
-				err := ss.requestFullHashes(list, hostKeyHash, fullHashRequestList)
-				if err != nil {
-					return "", false, nil
-				}
-				// re-check for full hash hits.
-				for _, hash := range prefixes {
-					ss.Logger.Debug("Need to request full length hashes for %s",
-						hex.EncodeToString([]byte(hash)))
-					if len(hash) == 32 {
-						if _, exists := ssl.LookupMap[hostKeyHash][hash]; exists {
-							return list, true, nil
-						}
-					}
-				}
-			}
+
+            prefix := urlHash[0:ssl.HashPrefixLen]
+            lookupHash := LookupHash(string(hostKeyHash) + string(prefix))
+            fullLookupHash := LookupHash(string(hostKeyHash) + string(urlHash))
+
+            ss.Logger.Debug("testing hash: %s + %s = %s, full = %s",
+                hex.EncodeToString([]byte(hostKeyHash)),
+                hex.EncodeToString([]byte(prefix)),
+                hex.EncodeToString([]byte(lookupHash)),
+                hex.EncodeToString([]byte(fullLookupHash)))
+
+            // look up full hash matches
+            if ssl.FullHashes.Get(string(fullLookupHash)) {
+				ssl.updateLock.RUnlock()
+				return list, true, nil
+            }
+
+            // now see if there is a match in our prefix trie
+            keysToLookupMap := make(map[LookupHash]bool)
+            if ssl.Lookup.Get(string(lookupHash)) {
+                if !matchFullHash || OfflineMode {
+                    ss.Logger.Debug("Partial hash hit")
+					ssl.updateLock.RUnlock()
+                    return list, false, nil
+                }
+                // have we have already asked for full hashes for this prefix?
+                if ssl.FullHashRequested.Get(string(lookupHash)) {
+                    ss.Logger.Debug("Full length hash miss")
+					ssl.updateLock.RUnlock()
+                    return "", false, nil
+                }
+
+                // we matched a prefix and need to request a full hash
+                ss.Logger.Debug("Need to request full length hashes for %s",
+                    hex.EncodeToString([]byte(prefix)))
+
+                keysToLookupMap[prefix] = true
+            }
+            if len(keysToLookupMap) > 0 {
+				ssl.updateLock.RUnlock()
+                err := ss.requestFullHashes(list, hostKeyHash, keysToLookupMap)
+                if err != nil {
+                    return "", false, nil
+                }
+				ssl.updateLock.RLock()
+
+                // re-check for full hash hit.
+                if ssl.FullHashes.Get(string(fullLookupHash)) {
+					ssl.updateLock.RUnlock()
+					return list, true, nil
+                }
+            }
+
+			ssl.updateLock.RUnlock()
 		}
 	}
 
 	return "", false, nil
 }
 
-func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes []LookupHash) error {
+func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes map[LookupHash]bool) error {
 	if len(prefixes) == 0 {
 		return nil
 	}
 	query := "%d:%d\n%s"
 	buf := bytes.Buffer{}
-	firstPrefixLen := len(prefixes[0])
-	for _, prefix := range prefixes {
+	firstPrefixLen := 0
+	for prefix, _ := range prefixes {
 		_, err := buf.Write([]byte(prefix))
 		if err != nil {
 			return err
 		}
-		if firstPrefixLen != len(prefixes[0]) {
+        if firstPrefixLen == 0 {
+            firstPrefixLen = len(prefix)
+        }
+		if firstPrefixLen != len(prefix) {
 			return fmt.Errorf("Attempted to used variable length hashes in lookup!")
 		}
 	}
@@ -471,11 +482,8 @@ func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes [
 			response.StatusCode)
 	}
 	// mark these prefxes as having been requested
-	for _, prefix := range prefixes {
-		if _, exists := ss.Lists[list].FullHashRequested[host]; !exists {
-			ss.Lists[list].FullHashRequested[host] = make(map[LookupHash]bool)
-		}
-		ss.Lists[list].FullHashRequested[host][prefix] = true
+	for prefix, _ := range prefixes {
+		ss.Lists[list].FullHashRequested.Set(string(host)+string(prefix))
 	}
 	return ss.processFullHashes(list, response.Body, host)
 }

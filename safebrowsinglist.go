@@ -27,10 +27,18 @@ package safebrowsing
 import (
 	"bufio"
 	"encoding/gob"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"sync"
 )
+
+// This calculated assuming a size of 500,000 entries
+// and a false-positive probability of 1.0E-20
+// thanks to http://hur.st/bloomfilter?n=500000&p=1.0E-20
+const BLOOM_FILTER_BITS = 50000000
+const BLOOM_FILTER_HASHES = 66
 
 type SafeBrowsingList struct {
 	Name          string
@@ -40,14 +48,16 @@ type SafeBrowsingList struct {
 
 	ChunkRanges map[ChunkType]string
 
-	HashSizesBytes map[int]bool
+    HashPrefixLen int
 	// We have the lookup map keyed by host hash, this may mean we have
 	// to do duplicated full has requests for the same hash prefix on
 	// different hosts, but that should be a pretty rare occurance.
-	LookupMap         map[HostHash]map[LookupHash]ChunkNum
-	FullHashRequested map[HostHash]map[LookupHash]bool
+	Lookup            *HatTrie
+	FullHashRequested *HatTrie
+	FullHashes        *HatTrie
 	EntryCount        int
 	Logger            logger
+	updateLock        *sync.RWMutex
 }
 
 func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
@@ -55,11 +65,12 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 		Name:              name,
 		FileName:          filename,
 		DataRedirects:     make([]string, 0),
-		HashSizesBytes:    make(map[int]bool),
-		LookupMap:         make(map[HostHash]map[LookupHash]ChunkNum),
-		FullHashRequested: make(map[HostHash]map[LookupHash]bool),
+		Lookup:            NewTrie(),
+		FullHashRequested: NewTrie(),
+		FullHashes:        NewTrie(),
 		DeleteChunks:      make(map[ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
+		updateLock:        new(sync.RWMutex),
 	}
 	ssl.DeleteChunks[CHUNK_TYPE_ADD] = make(map[ChunkNum]bool)
 	ssl.DeleteChunks[CHUNK_TYPE_SUB] = make(map[ChunkNum]bool)
@@ -67,8 +78,8 @@ func newSafeBrowsingList(name string, filename string) (ssl *SafeBrowsingList) {
 }
 
 func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
-
 	ssl.Logger.Info("Reloading %s", ssl.Name)
+	ssl.updateLock.Lock()
 
 	//  get the input stream
 	f, err := os.Open(ssl.FileName)
@@ -83,6 +94,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 	// open the file again for output
 	fOut, err := os.Create(ssl.FileName + ".tmp")
 	if err != nil {
+		ssl.updateLock.Unlock()
 		return fmt.Errorf("Error opening file: %s", err)
 	}
 	enc := gob.NewEncoder(fOut)
@@ -92,8 +104,8 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 	subChunkIndexes := make(map[ChunkNum]bool)
 
 	// reset the lookup map
-	newLookup := make(map[HostHash]map[LookupHash]ChunkNum)
 	newEntryCount := 0
+    subEntryCount := 0
 
 	deletedChunkCount := 0
 
@@ -113,6 +125,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 			if enc != nil {
 				err = enc.Encode(chunk)
 				if err != nil {
+					ssl.updateLock.Unlock()
 					return err
 				}
 			}
@@ -122,11 +135,13 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				newEntryCount += len(chunk.Hashes)
 			case CHUNK_TYPE_SUB:
 				subChunkIndexes[chunk.ChunkNum] = true
+                subEntryCount += len(chunk.Hashes)
 			}
 			// apply this chunk.
-			newLookup = updateLookupMap(newLookup, chunk)
+			ssl.updateLookupMap(chunk)
 		}
 		if err != io.EOF {
+			ssl.updateLock.Unlock()
 			return err
 		}
 	}
@@ -141,6 +156,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 			if enc != nil {
 				err = enc.Encode(chunk)
 				if err != nil {
+					ssl.updateLock.Unlock()
 					return err
 				}
 			}
@@ -150,10 +166,9 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				newEntryCount += len(chunk.Hashes)
 			case CHUNK_TYPE_SUB:
 				subChunkIndexes[chunk.ChunkNum] = true
+                subEntryCount += len(chunk.Hashes)
 			}
-			// apply this chunk.
-			ssl.HashSizesBytes[chunk.HashLen] = true
-			newLookup = updateLookupMap(newLookup, chunk)
+			ssl.updateLookupMap(chunk)
 		}
 	}
 
@@ -163,11 +178,13 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 		fOut.Close()
 		err = os.Remove(ssl.FileName)
 		if err != nil {
+			ssl.updateLock.Unlock()
 			return err
 		}
 	}
 	err = os.Rename(ssl.FileName+".tmp", ssl.FileName)
 	if err != nil {
+		ssl.updateLock.Unlock()
 		return err
 	}
 
@@ -175,17 +192,17 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 		CHUNK_TYPE_ADD: buildChunkRanges(addChunkIndexes),
 		CHUNK_TYPE_SUB: buildChunkRanges(subChunkIndexes),
 	}
-	ssl.LookupMap = newLookup
 	ssl.DeleteChunks = make(map[ChunkType]map[ChunkNum]bool)
-	ssl.Logger.Info("Loaded %d existing add chunks and %d sub chunks " +
-					"(~ %d hashes, over %d hosts), deleted %d, added %d.",
+	ssl.Logger.Info("Loaded %d existing add chunks and %d sub chunks "+
+		"(~ %d hashes added, ~ %d hashes removed), deleted %d chunks, added %d new chunks.",
 		len(addChunkIndexes),
 		len(subChunkIndexes),
 		newEntryCount,
-		len(newLookup),
+        subEntryCount,
 		deletedChunkCount,
 		len(newChunks),
 	)
+	ssl.updateLock.Unlock()
 	return nil
 }
 
@@ -222,35 +239,49 @@ func (ssl *SafeBrowsingList) loadDataFromRedirectLists() error {
 	return ssl.load(newChunks)
 }
 
-func updateLookupMap(lookupMap map[HostHash]map[LookupHash]ChunkNum, chunk *Chunk) map[HostHash]map[LookupHash]ChunkNum {
+func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
 	for hostHashString, hashes := range chunk.Hashes {
 		hostHash := HostHash(hostHashString)
 		for _, hash := range hashes {
-			switch chunk.ChunkType {
-			case CHUNK_TYPE_ADD:
-				if _, exists := lookupMap[hostHash]; !exists {
-					lookupMap[hostHash] = make(map[LookupHash]ChunkNum)
-				}
-				lookupMap[hostHash][hash] = chunk.ChunkNum
-			case CHUNK_TYPE_SUB:
-				if _, exists := lookupMap[hostHash]; !exists {
-					continue
-				}
-				// TODO(rjohnsondev): this is kinda slow and rubbish...
-				for fullTestHash, _ := range lookupMap[hostHash] {
-					testHash := fullTestHash
-					if len(testHash) > len(hash) {
-						testHash = testHash[0:len(hash)]
-					}
-					if testHash == hash {
-						delete(lookupMap[hostHash], fullTestHash)
-					}
-				}
-				if len(lookupMap[hostHash]) == 0 {
-					delete(lookupMap, hostHash)
-				}
-			}
+            if len(hash) == 32 {
+                // we are a full-length hash
+				lookupHash := string(hostHash)+string(hash)
+                switch chunk.ChunkType {
+                case CHUNK_TYPE_ADD:
+                    ssl.Logger.Debug("Adding full length hash: %s",
+                        hex.EncodeToString([]byte(lookupHash)))
+                    ssl.FullHashes.Set(lookupHash)
+                case CHUNK_TYPE_SUB:
+                    ssl.FullHashes.Delete(lookupHash)
+                }
+
+            } else {
+				// update the hash prefix
+                if ssl.HashPrefixLen == 0 {
+                    ssl.HashPrefixLen = chunk.HashLen
+                } else if ssl.HashPrefixLen != chunk.HashLen {
+                    // ERR, more than one length hash in this list :/
+                    panic(fmt.Errorf(
+                        "Found more than 1 length hash in a single list, " +
+                        "this is currently unsupported"))
+                }
+
+                // we are a hash-prefix
+                lookup := string(hostHash) + string(hash)
+                switch chunk.ChunkType {
+                case CHUNK_TYPE_ADD:
+                    ssl.Lookup.Set(lookup)
+                case CHUNK_TYPE_SUB:
+                    ssl.Lookup.Delete(lookup)
+                    i := ssl.FullHashes.Iterator()
+                    for key := i.Next(); key != ""; key = i.Next() {
+                        keyPrefix := key[0:len(lookup)]
+                        if keyPrefix == lookup {
+                            ssl.FullHashes.Delete(key)
+                        }
+                    }
+                }
+            }
 		}
 	}
-	return lookupMap
 }
