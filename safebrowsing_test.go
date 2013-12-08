@@ -35,7 +35,9 @@ import (
 	"encoding/hex"
 	"io/ioutil"
 	"net/http"
+	//"github.com/willf/bloom"
 	//"strings"
+	"sync"
 )
 
 type MockReadCloser struct {
@@ -169,26 +171,22 @@ func TestUrlListed(t *testing.T) {
 			"googpub-phish-shavar": &SafeBrowsingList{
 				Name:     "googpub-phish-shavar",
 				FileName: tmpDirName + "/googpub-phish-shavar.dat",
-				HashSizesBytes: map[int]bool{
-					4:  true,
-					32: true,
-				},
-				LookupMap: map[HostHash]map[LookupHash]ChunkNum{
-					hostHash: map[LookupHash]ChunkNum{
-						LookupHash(hostHash): ChunkNum(1),
-					},
-				},
-				FullHashRequested: map[HostHash]map[LookupHash]bool{},
+				HashPrefixLen: 4,
+                Lookup:      NewTrie(),
+                FullHashRequested: NewTrie(),
+                FullHashes:        NewTrie(),
 				DeleteChunks: map[ChunkType]map[ChunkNum]bool{
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
 				},
 				Logger:	 new(DefaultLogger),
+				updateLock:        new(sync.RWMutex),
 			},
 		},
 		Logger:	 new(DefaultLogger),
 		request: NewMockRequest(string(chunkData)),
 	}
+    ss.Lists["googpub-phish-shavar"].Lookup.Set(string(hostHash) + string(hostHash))
 
 	url := "http://test.com/"
 	result, _, err := ss.MightBeListed(url)
@@ -208,7 +206,7 @@ func TestUrlListed(t *testing.T) {
 		return
 	}
 	if result == "" {
-		t.Error("Hash was not found :/")
+		t.Error("Full hash was not found :/")
 		return
 	}
 	os.RemoveAll(tmpDirName)

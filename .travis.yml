@@ -1,8 +1,16 @@
 language: go
 go:
     - 1.2
-install:
+before_install:
     - sudo apt-get install dh-autoreconf
-    - (git clone git@github.com:dcjones/hat-trie.git && cd hat-trie && autoreconf -i && ./configure --prefix=/usr && sudo make install)
+    - git clone https://github.com/dcjones/hat-trie.git
+    - cd hat-trie
+    - autoreconf -i
+    - ./configure --prefix=/usr
+    - sudo make install
+    - cd -
+    - go get github.com/axw/gocov/gocov
+    - go get code.google.com/p/go.tools/cmd/cover
+    - go get github.com/mattn/goveralls
 script:
     - $HOME/gopath/bin/goveralls nQ6xM1UC8iomu6dXVZ3qDTz9hqRiQqwDW
