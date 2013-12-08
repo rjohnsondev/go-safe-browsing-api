@@ -105,6 +105,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 
 	// reset the lookup map
 	newEntryCount := 0
+    subEntryCount := 0
 
 	deletedChunkCount := 0
 
@@ -134,6 +135,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				newEntryCount += len(chunk.Hashes)
 			case CHUNK_TYPE_SUB:
 				subChunkIndexes[chunk.ChunkNum] = true
+                subEntryCount += len(chunk.Hashes)
 			}
 			// apply this chunk.
 			ssl.updateLookupMap(chunk)
@@ -164,6 +166,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				newEntryCount += len(chunk.Hashes)
 			case CHUNK_TYPE_SUB:
 				subChunkIndexes[chunk.ChunkNum] = true
+                subEntryCount += len(chunk.Hashes)
 			}
 			ssl.updateLookupMap(chunk)
 		}
@@ -191,10 +194,11 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 	}
 	ssl.DeleteChunks = make(map[ChunkType]map[ChunkNum]bool)
 	ssl.Logger.Info("Loaded %d existing add chunks and %d sub chunks "+
-		"(~ %d hashes, over %d hosts), deleted %d, added %d.",
+		"(~ %d hashes added, ~ %d hashes removed), deleted %d chunks, added %d new chunks.",
 		len(addChunkIndexes),
 		len(subChunkIndexes),
 		newEntryCount,
+        subEntryCount,
 		deletedChunkCount,
 		len(newChunks),
 	)
