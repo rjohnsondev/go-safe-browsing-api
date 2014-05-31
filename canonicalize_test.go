@@ -30,10 +30,7 @@ import (
 
 func TestCandidates(t *testing.T) {
 	url := "http://a.b.c/1/2.html?param=1"
-	values, err := GenerateTestCandidates(url)
-	if err != nil {
-		t.Error(err)
-	}
+	values := GenerateTestCandidates(url)
 	lookup := make(map[string]bool)
 	for _, val := range values {
 		lookup[val] = true
@@ -56,10 +53,7 @@ func TestCandidates(t *testing.T) {
 	}
 
 	url = "http://a.b.c.d.e.f.g/1.html"
-	values, err = GenerateTestCandidates(url)
-	if err != nil {
-		t.Error(err)
-	}
+	values = GenerateTestCandidates(url)
 	lookup = make(map[string]bool)
 	for _, val := range values {
 		lookup[val] = true
@@ -84,10 +78,7 @@ func TestCandidates(t *testing.T) {
 	}
 
 	url = "http://1.2.3.4/1/"
-	values, err = GenerateTestCandidates(url)
-	if err != nil {
-		t.Error(err)
-	}
+	values = GenerateTestCandidates(url)
 	lookup = make(map[string]bool)
 	for _, val := range values {
 		lookup[val] = true
@@ -104,10 +95,7 @@ func TestCandidates(t *testing.T) {
 	}
 
 	url = "http://1.2.3.4/"
-	values, err = GenerateTestCandidates(url)
-	if err != nil {
-		t.Error(err)
-	}
+	values = GenerateTestCandidates(url)
 	lookup = make(map[string]bool)
 	for _, val := range values {
 		lookup[val] = true
@@ -241,13 +229,10 @@ func TestCanonicalize(t *testing.T) {
 	}
 
 	for x := 0; x < len(src); x++ {
-		out, err := Canonicalize(src[x])
+		out := Canonicalize(src[x])
 		if out != comp[x] {
 			t.Errorf("failed %d: src - '%s', comp - '%s', out - '%s'",
 					 x, src[x], comp[x], out)
-		}
-		if err != nil {
-			t.Error(err)
 		}
 	}
 
