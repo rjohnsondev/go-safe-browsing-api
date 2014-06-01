@@ -440,6 +440,7 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 	return "", false, nil
 }
 
+// request full hases for a set of lookup prefixes.
 func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes map[LookupHash]bool) error {
 	if len(prefixes) == 0 {
 		return nil
@@ -469,19 +470,68 @@ func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes m
 		ss.Client, ss.Key, ss.AppVersion)
 	response, err := ss.request(url, body, true)
 	if err != nil {
-		return err
+		return err // non-server error with HTTP
 	}
-	if response.StatusCode >= 400 {
-		return fmt.Errorf("Unable to lookup hash, server returned %d",
-			response.StatusCode)
-	}
+
 	// mark these prefxes as having been requested
-	for prefix, _ := range prefixes {
-		ss.Lists[list].FullHashRequested.Set(string(host)+string(prefix))
+    ss.Lists[list].updateLock.Lock()
+    for prefix, _ := range prefixes {
+        ss.Lists[list].FullHashRequested.Set(string(host)+string(prefix))
+    }
+    ss.Lists[list].updateLock.Unlock()
+
+	if response.StatusCode >= 400 {
+        // start new thread for back-off mode behaviour
+        go ss.doFullHashBackOffRequest(list, host, url, body)
+		return fmt.Errorf("Unable to lookup full hash, will retry in background, server returned %d",
+			response.StatusCode)
 	}
 	return ss.processFullHashes(list, response.Body, host)
 }
 
+// Continue the attempt to request for full hashes in the background, observing the required backoff behaviour.
+func (ss *SafeBrowsing) doFullHashBackOffRequest(list string, host HostHash, url string, body string) {
+    r := rand.New(rand.NewSource(time.Now().UnixNano()))
+    randomFloat := r.Float64()
+    var response *http.Response
+    response.StatusCode = 400
+    var err error
+    for x := 0; response.StatusCode >= 400; x++ {
+        // first we wait 1 min, than some time between 30-60 mins
+        // doubling until we stop at 480 mins or succeed
+        mins := (30 * (randomFloat + 1) * float64(x)) + 1
+        if mins > 480 {
+            ss.Logger.Warn(
+                "Back-off for full hash %s exceeded 8 hours, it ain't going to happen, giving up: %s",
+                body,
+                response,
+            )
+            return;
+        }
+        ss.Logger.Warn(
+            "Update failed, in full hash back-off mode (waiting %d mins)",
+            mins,
+        )
+        time.Sleep(time.Duration(mins) * time.Minute)
+        response, err = ss.request(url, body, true)
+        if err != nil {
+            ss.Logger.Error(
+                "Unable to request full hashes from response in back-off mode: %s",
+                err,
+            )
+        }
+    }
+    err = ss.processFullHashes(list, response.Body, host)
+    if err != nil {
+        ss.Logger.Error(
+            "Unable process full hashes from response in back-off mode: %s; trying again.",
+            err,
+        )
+        ss.doFullHashBackOffRequest(list, host, url, body)
+    }
+}
+
+// Process the retrieved full hashes, saving them to disk
 func (ss *SafeBrowsing) processFullHashes(list string, f io.Reader, host HostHash) error {
 	responseBuf := bufio.NewReader(f)
 	chunks := make([]*Chunk, 0)
