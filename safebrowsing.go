@@ -85,7 +85,7 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err
 			tmpList.Logger = ss.Logger
 			err := tmpList.load(nil)
 			if err != nil {
-				ss.Logger.Warn("Error loading list: %s", listName, err)
+				ss.Logger.Warn("Error loading list %s: %s", listName, err)
 				continue
 			}
 			ss.Lists[listName] = tmpList
@@ -146,7 +146,7 @@ func (ss *SafeBrowsing) loadExistingData() error {
 	for _, ssl := range ss.Lists {
 		err := ssl.load(nil)
 		if err != nil {
-			return fmt.Errorf("Error loading list: %s", ss.DataDir, err)
+			return fmt.Errorf("Error loading list from %s: %s", ss.DataDir, err)
 		}
 		debug.FreeOSMemory()
 	}
@@ -368,14 +368,15 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 	// first Canonicalize
 	url = Canonicalize(url)
 
-	// now see if there is a host hit
-	hostKey := ExtractHostKey(url)
-	hostKeyHash := HostHash(getHash(hostKey)[:4])
-	ss.Logger.Debug("Host hash: %s", hex.EncodeToString([]byte(hostKeyHash)))
     urls := GenerateTestCandidates(url)
     ss.Logger.Debug("Checking %d iterations of url", len(urls))
     for _, url := range urls {
         for list, ssl := range ss.Lists {
+
+			hostKey := ExtractHostKey(url)
+			hostKeyHash := HostHash(getHash(hostKey)[:4])
+			ss.Logger.Debug("Host hash: %s", hex.EncodeToString([]byte(hostKeyHash)))
+
 			ssl.updateLock.RLock()
 			// hash it up
 			ss.Logger.Debug("Hashing %s", url)
