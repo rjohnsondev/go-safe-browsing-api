@@ -48,7 +48,7 @@ type SafeBrowsingList struct {
 
 	ChunkRanges map[ChunkType]string
 
-    HashPrefixLen int
+	HashPrefixLen int
 	// We have the lookup map keyed by host hash, this may mean we have
 	// to do duplicated full has requests for the same hash prefix on
 	// different hosts, but that should be a pretty rare occurance.
@@ -105,7 +105,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 
 	// reset the lookup map
 	newEntryCount := 0
-    subEntryCount := 0
+	subEntryCount := 0
 
 	deletedChunkCount := 0
 
@@ -135,7 +135,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				newEntryCount += len(chunk.Hashes)
 			case CHUNK_TYPE_SUB:
 				subChunkIndexes[chunk.ChunkNum] = true
-                subEntryCount += len(chunk.Hashes)
+				subEntryCount += len(chunk.Hashes)
 			}
 			// apply this chunk.
 			ssl.updateLookupMap(chunk)
@@ -166,7 +166,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 				newEntryCount += len(chunk.Hashes)
 			case CHUNK_TYPE_SUB:
 				subChunkIndexes[chunk.ChunkNum] = true
-                subEntryCount += len(chunk.Hashes)
+				subEntryCount += len(chunk.Hashes)
 			}
 			ssl.updateLookupMap(chunk)
 		}
@@ -198,7 +198,7 @@ func (ssl *SafeBrowsingList) load(newChunks []*Chunk) (err error) {
 		len(addChunkIndexes),
 		len(subChunkIndexes),
 		newEntryCount,
-        subEntryCount,
+		subEntryCount,
 		deletedChunkCount,
 		len(newChunks),
 	)
@@ -243,45 +243,45 @@ func (ssl *SafeBrowsingList) updateLookupMap(chunk *Chunk) {
 	for hostHashString, hashes := range chunk.Hashes {
 		hostHash := HostHash(hostHashString)
 		for _, hash := range hashes {
-            if len(hash) == 32 {
-                // we are a full-length hash
-				lookupHash := string(hostHash)+string(hash)
-                switch chunk.ChunkType {
-                case CHUNK_TYPE_ADD:
-                    ssl.Logger.Debug("Adding full length hash: %s",
-                        hex.EncodeToString([]byte(lookupHash)))
-                    ssl.FullHashes.Set(lookupHash)
-                case CHUNK_TYPE_SUB:
-                    ssl.FullHashes.Delete(lookupHash)
-                }
+			if len(hash) == 32 {
+				// we are a full-length hash
+				lookupHash := string(hostHash) + string(hash)
+				switch chunk.ChunkType {
+				case CHUNK_TYPE_ADD:
+					ssl.Logger.Debug("Adding full length hash: %s",
+						hex.EncodeToString([]byte(lookupHash)))
+					ssl.FullHashes.Set(lookupHash)
+				case CHUNK_TYPE_SUB:
+					ssl.FullHashes.Delete(lookupHash)
+				}
 
-            } else {
+			} else {
 				// update the hash prefix
-                if ssl.HashPrefixLen == 0 {
-                    ssl.HashPrefixLen = chunk.HashLen
-                } else if ssl.HashPrefixLen != chunk.HashLen {
-                    // ERR, more than one length hash in this list :/
-                    panic(fmt.Errorf(
-                        "Found more than 1 length hash in a single list, " +
-                        "this is currently unsupported"))
-                }
+				if ssl.HashPrefixLen == 0 {
+					ssl.HashPrefixLen = chunk.HashLen
+				} else if ssl.HashPrefixLen != chunk.HashLen {
+					// ERR, more than one length hash in this list :/
+					panic(fmt.Errorf(
+						"Found more than 1 length hash in a single list, " +
+							"this is currently unsupported"))
+				}
 
-                // we are a hash-prefix
-                lookup := string(hostHash) + string(hash)
-                switch chunk.ChunkType {
-                case CHUNK_TYPE_ADD:
-                    ssl.Lookup.Set(lookup)
-                case CHUNK_TYPE_SUB:
-                    ssl.Lookup.Delete(lookup)
-                    i := ssl.FullHashes.Iterator()
-                    for key := i.Next(); key != ""; key = i.Next() {
-                        keyPrefix := key[0:len(lookup)]
-                        if keyPrefix == lookup {
-                            ssl.FullHashes.Delete(key)
-                        }
-                    }
-                }
-            }
+				// we are a hash-prefix
+				lookup := string(hostHash) + string(hash)
+				switch chunk.ChunkType {
+				case CHUNK_TYPE_ADD:
+					ssl.Lookup.Set(lookup)
+				case CHUNK_TYPE_SUB:
+					ssl.Lookup.Delete(lookup)
+					i := ssl.FullHashes.Iterator()
+					for key := i.Next(); key != ""; key = i.Next() {
+						keyPrefix := key[0:len(lookup)]
+						if keyPrefix == lookup {
+							ssl.FullHashes.Delete(key)
+						}
+					}
+				}
+			}
 		}
 	}
 }

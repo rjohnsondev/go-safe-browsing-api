@@ -77,8 +77,8 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err
 	}
 
 	// if the dataDirectory does not currently exist, have a go at creating it:
-	err = os.MkdirAll(dataDirectory, os.ModeDir | 0700)
-	if (err != nil) {
+	err = os.MkdirAll(dataDirectory, os.ModeDir|0700)
+	if err != nil {
 		ss.Logger.Error(
 			"Directory \"%s\" does not exist, and I was unable to create it!",
 			dataDirectory)
@@ -376,10 +376,10 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 	// first Canonicalize
 	url = Canonicalize(url)
 
-    urls := GenerateTestCandidates(url)
-    ss.Logger.Debug("Checking %d iterations of url", len(urls))
-    for _, url := range urls {
-        for list, ssl := range ss.Lists {
+	urls := GenerateTestCandidates(url)
+	ss.Logger.Debug("Checking %d iterations of url", len(urls))
+	for _, url := range urls {
+		for list, ssl := range ss.Lists {
 
 			hostKey := ExtractHostKey(url)
 			hostKeyHash := HostHash(getHash(hostKey)[:4])
@@ -390,57 +390,57 @@ func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 			ss.Logger.Debug("Hashing %s", url)
 			urlHash := getHash(url)
 
-            prefix := urlHash[0:ssl.HashPrefixLen]
-            lookupHash := LookupHash(string(hostKeyHash) + string(prefix))
-            fullLookupHash := LookupHash(string(hostKeyHash) + string(urlHash))
+			prefix := urlHash[0:ssl.HashPrefixLen]
+			lookupHash := LookupHash(string(hostKeyHash) + string(prefix))
+			fullLookupHash := LookupHash(string(hostKeyHash) + string(urlHash))
 
-            ss.Logger.Debug("testing hash: %s + %s = %s, full = %s",
-                hex.EncodeToString([]byte(hostKeyHash)),
-                hex.EncodeToString([]byte(prefix)),
-                hex.EncodeToString([]byte(lookupHash)),
-                hex.EncodeToString([]byte(fullLookupHash)))
+			ss.Logger.Debug("testing hash: %s + %s = %s, full = %s",
+				hex.EncodeToString([]byte(hostKeyHash)),
+				hex.EncodeToString([]byte(prefix)),
+				hex.EncodeToString([]byte(lookupHash)),
+				hex.EncodeToString([]byte(fullLookupHash)))
 
-            // look up full hash matches
-            if ssl.FullHashes.Get(string(fullLookupHash)) {
+			// look up full hash matches
+			if ssl.FullHashes.Get(string(fullLookupHash)) {
 				ssl.updateLock.RUnlock()
 				return list, true, nil
-            }
+			}
 
-            // now see if there is a match in our prefix trie
-            keysToLookupMap := make(map[LookupHash]bool)
-            if ssl.Lookup.Get(string(lookupHash)) {
-                if !matchFullHash || OfflineMode {
-                    ss.Logger.Debug("Partial hash hit")
+			// now see if there is a match in our prefix trie
+			keysToLookupMap := make(map[LookupHash]bool)
+			if ssl.Lookup.Get(string(lookupHash)) {
+				if !matchFullHash || OfflineMode {
+					ss.Logger.Debug("Partial hash hit")
 					ssl.updateLock.RUnlock()
-                    return list, false, nil
-                }
-                // have we have already asked for full hashes for this prefix?
-                if ssl.FullHashRequested.Get(string(lookupHash)) {
-                    ss.Logger.Debug("Full length hash miss")
+					return list, false, nil
+				}
+				// have we have already asked for full hashes for this prefix?
+				if ssl.FullHashRequested.Get(string(lookupHash)) {
+					ss.Logger.Debug("Full length hash miss")
 					ssl.updateLock.RUnlock()
-                    return "", false, nil
-                }
+					return "", false, nil
+				}
 
-                // we matched a prefix and need to request a full hash
-                ss.Logger.Debug("Need to request full length hashes for %s",
-                    hex.EncodeToString([]byte(prefix)))
+				// we matched a prefix and need to request a full hash
+				ss.Logger.Debug("Need to request full length hashes for %s",
+					hex.EncodeToString([]byte(prefix)))
 
-                keysToLookupMap[prefix] = true
-            }
-            if len(keysToLookupMap) > 0 {
+				keysToLookupMap[prefix] = true
+			}
+			if len(keysToLookupMap) > 0 {
 				ssl.updateLock.RUnlock()
-                err := ss.requestFullHashes(list, hostKeyHash, keysToLookupMap)
-                if err != nil {
-                    return "", false, err
-                }
+				err := ss.requestFullHashes(list, hostKeyHash, keysToLookupMap)
+				if err != nil {
+					return "", false, err
+				}
 				ssl.updateLock.RLock()
 
-                // re-check for full hash hit.
-                if ssl.FullHashes.Get(string(fullLookupHash)) {
+				// re-check for full hash hit.
+				if ssl.FullHashes.Get(string(fullLookupHash)) {
 					ssl.updateLock.RUnlock()
 					return list, true, nil
-                }
-            }
+				}
+			}
 
 			ssl.updateLock.RUnlock()
 		}
@@ -462,9 +462,9 @@ func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes m
 		if err != nil {
 			return err
 		}
-        if firstPrefixLen == 0 {
-            firstPrefixLen = len(prefix)
-        }
+		if firstPrefixLen == 0 {
+			firstPrefixLen = len(prefix)
+		}
 		if firstPrefixLen != len(prefix) {
 			return fmt.Errorf("Attempted to used variable length hashes in lookup!")
 		}
@@ -483,15 +483,15 @@ func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes m
 	}
 
 	// mark these prefxes as having been requested
-    ss.Lists[list].updateLock.Lock()
-    for prefix, _ := range prefixes {
-        ss.Lists[list].FullHashRequested.Set(string(host)+string(prefix))
-    }
-    ss.Lists[list].updateLock.Unlock()
+	ss.Lists[list].updateLock.Lock()
+	for prefix, _ := range prefixes {
+		ss.Lists[list].FullHashRequested.Set(string(host) + string(prefix))
+	}
+	ss.Lists[list].updateLock.Unlock()
 
 	if response.StatusCode >= 400 {
-        // start new thread for back-off mode behaviour
-        go ss.doFullHashBackOffRequest(list, host, url, body)
+		// start new thread for back-off mode behaviour
+		go ss.doFullHashBackOffRequest(list, host, url, body)
 		return fmt.Errorf("Unable to lookup full hash, will retry in background, server returned %d",
 			response.StatusCode)
 	}
@@ -500,44 +500,44 @@ func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes m
 
 // Continue the attempt to request for full hashes in the background, observing the required backoff behaviour.
 func (ss *SafeBrowsing) doFullHashBackOffRequest(list string, host HostHash, url string, body string) {
-    r := rand.New(rand.NewSource(time.Now().UnixNano()))
-    randomFloat := r.Float64()
-    var response *http.Response
-    response.StatusCode = 400
-    var err error
-    for x := 0; response.StatusCode >= 400; x++ {
-        // first we wait 1 min, than some time between 30-60 mins
-        // doubling until we stop at 480 mins or succeed
-        mins := (30 * (randomFloat + 1) * float64(x)) + 1
-        if mins > 480 {
-            ss.Logger.Warn(
-                "Back-off for full hash %s exceeded 8 hours, it ain't going to happen, giving up: %s",
-                body,
-                response,
-            )
-            return;
-        }
-        ss.Logger.Warn(
-            "Update failed, in full hash back-off mode (waiting %d mins)",
-            mins,
-        )
-        time.Sleep(time.Duration(mins) * time.Minute)
-        response, err = ss.request(url, body, true)
-        if err != nil {
-            ss.Logger.Error(
-                "Unable to request full hashes from response in back-off mode: %s",
-                err,
-            )
-        }
-    }
-    err = ss.processFullHashes(list, response.Body, host)
-    if err != nil {
-        ss.Logger.Error(
-            "Unable process full hashes from response in back-off mode: %s; trying again.",
-            err,
-        )
-        ss.doFullHashBackOffRequest(list, host, url, body)
-    }
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	randomFloat := r.Float64()
+	var response *http.Response
+	response.StatusCode = 400
+	var err error
+	for x := 0; response.StatusCode >= 400; x++ {
+		// first we wait 1 min, than some time between 30-60 mins
+		// doubling until we stop at 480 mins or succeed
+		mins := (30 * (randomFloat + 1) * float64(x)) + 1
+		if mins > 480 {
+			ss.Logger.Warn(
+				"Back-off for full hash %s exceeded 8 hours, it ain't going to happen, giving up: %s",
+				body,
+				response,
+			)
+			return
+		}
+		ss.Logger.Warn(
+			"Update failed, in full hash back-off mode (waiting %d mins)",
+			mins,
+		)
+		time.Sleep(time.Duration(mins) * time.Minute)
+		response, err = ss.request(url, body, true)
+		if err != nil {
+			ss.Logger.Error(
+				"Unable to request full hashes from response in back-off mode: %s",
+				err,
+			)
+		}
+	}
+	err = ss.processFullHashes(list, response.Body, host)
+	if err != nil {
+		ss.Logger.Error(
+			"Unable process full hashes from response in back-off mode: %s; trying again.",
+			err,
+		)
+		ss.doFullHashBackOffRequest(list, host, url, body)
+	}
 }
 
 // Process the retrieved full hashes, saving them to disk

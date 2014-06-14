@@ -73,7 +73,7 @@ func TestSafeBrowsingLists(t *testing.T) {
 	ss := &SafeBrowsing{
 		request: NewMockRequest(data),
 		Lists:   make(map[string]*SafeBrowsingList),
-		Logger:	 new(DefaultLogger),
+		Logger:  new(DefaultLogger),
 	}
 	err := ss.requestSafeBrowsingLists()
 	if err != nil {
@@ -101,7 +101,7 @@ sd:2-6`
 			"googpub-phish-shavar": newSafeBrowsingList("googpub-phish-shavar", ""),
 			"acme-white-shavar":    newSafeBrowsingList("acme-white-shavar", ""),
 		},
-		Logger:	 new(DefaultLogger),
+		Logger: new(DefaultLogger),
 	}
 	err := ss.requestRedirectList()
 	if err != nil {
@@ -131,7 +131,7 @@ sd:2-6`
 
 	ss = &SafeBrowsing{
 		request: NewMockRequest("e:pleaserekey"),
-		Logger:	 new(DefaultLogger),
+		Logger:  new(DefaultLogger),
 	}
 	err = ss.requestRedirectList()
 	if err.Error() != "Error recieved from server: pleaserekey" {
@@ -169,24 +169,24 @@ func TestUrlListed(t *testing.T) {
 		DataDir:     tmpDirName,
 		Lists: map[string]*SafeBrowsingList{
 			"googpub-phish-shavar": &SafeBrowsingList{
-				Name:     "googpub-phish-shavar",
-				FileName: tmpDirName + "/googpub-phish-shavar.dat",
-				HashPrefixLen: 4,
-                Lookup:      NewTrie(),
-                FullHashRequested: NewTrie(),
-                FullHashes:        NewTrie(),
+				Name:              "googpub-phish-shavar",
+				FileName:          tmpDirName + "/googpub-phish-shavar.dat",
+				HashPrefixLen:     4,
+				Lookup:            NewTrie(),
+				FullHashRequested: NewTrie(),
+				FullHashes:        NewTrie(),
 				DeleteChunks: map[ChunkType]map[ChunkNum]bool{
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
 				},
-				Logger:	 new(DefaultLogger),
-				updateLock:        new(sync.RWMutex),
+				Logger:     new(DefaultLogger),
+				updateLock: new(sync.RWMutex),
 			},
 		},
-		Logger:	 new(DefaultLogger),
+		Logger:  new(DefaultLogger),
 		request: NewMockRequest(string(chunkData)),
 	}
-    ss.Lists["googpub-phish-shavar"].Lookup.Set(string(hostHash) + string(hostHash))
+	ss.Lists["googpub-phish-shavar"].Lookup.Set(string(hostHash) + string(hostHash))
 
 	url := "http://test.com/"
 	result, _, err := ss.MightBeListed(url)

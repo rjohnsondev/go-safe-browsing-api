@@ -35,7 +35,7 @@ func TestCandidates(t *testing.T) {
 	for _, val := range values {
 		lookup[val] = true
 	}
-	comp := []string {
+	comp := []string{
 		"a.b.c/1/2.html?param=1",
 		"a.b.c/1/2.html",
 		"a.b.c/",
@@ -44,7 +44,7 @@ func TestCandidates(t *testing.T) {
 		"b.c/1/2.html",
 		"b.c/",
 		"b.c/1/",
-		}
+	}
 	for _, val := range comp {
 		if _, exists := lookup[val]; !exists {
 			t.Error("Didn't create required hostname: " + val)
@@ -58,7 +58,7 @@ func TestCandidates(t *testing.T) {
 	for _, val := range values {
 		lookup[val] = true
 	}
-	comp = []string {
+	comp = []string{
 		"a.b.c.d.e.f.g/1.html",
 		"a.b.c.d.e.f.g/",
 		"c.d.e.f.g/1.html",
@@ -69,7 +69,7 @@ func TestCandidates(t *testing.T) {
 		"e.f.g/",
 		"f.g/1.html",
 		"f.g/",
-		}
+	}
 	for _, val := range comp {
 		if _, exists := lookup[val]; !exists {
 			t.Error("Didn't create required hostname: " + val)
@@ -83,10 +83,10 @@ func TestCandidates(t *testing.T) {
 	for _, val := range values {
 		lookup[val] = true
 	}
-	comp = []string {
+	comp = []string{
 		"1.2.3.4/1/",
 		"1.2.3.4/",
-		}
+	}
 	for _, val := range comp {
 		if _, exists := lookup[val]; !exists {
 			t.Error("Didn't create required hostname: " + val)
@@ -100,9 +100,9 @@ func TestCandidates(t *testing.T) {
 	for _, val := range values {
 		lookup[val] = true
 	}
-	comp = []string {
+	comp = []string{
 		"1.2.3.4/",
-		}
+	}
 	for _, val := range comp {
 		if _, exists := lookup[val]; !exists {
 			t.Error("Didn't create required hostname: " + val)
@@ -118,13 +118,13 @@ func TestHostname(t *testing.T) {
 	for _, val := range values {
 		lookup[val] = true
 	}
-	comp := []string {
+	comp := []string{
 		"http://a.b.c.d.e.f.g/1.html",
 		"http://f.g/1.html",
 		"http://e.f.g/1.html",
 		"http://d.e.f.g/1.html",
 		"http://c.d.e.f.g/1.html",
-		}
+	}
 	for _, val := range comp {
 		if _, exists := lookup[val]; !exists {
 			t.Error("Didn't create required hostname: " + val)
@@ -138,13 +138,13 @@ func TestHostname(t *testing.T) {
 	for _, val := range values {
 		lookup[val] = true
 	}
-	comp = []string {
+	comp = []string{
 		"http://a.b.c.d.e.f.g/",
 		"http://f.g/",
 		"http://e.f.g/",
 		"http://d.e.f.g/",
 		"http://c.d.e.f.g/",
-		}
+	}
 	for _, val := range comp {
 		if _, exists := lookup[val]; !exists {
 			t.Error("Didn't create required hostname: " + val)
@@ -232,7 +232,7 @@ func TestCanonicalize(t *testing.T) {
 		out := Canonicalize(src[x])
 		if out != comp[x] {
 			t.Errorf("failed %d: src - '%s', comp - '%s', out - '%s'",
-					 x, src[x], comp[x], out)
+				x, src[x], comp[x], out)
 		}
 	}
 

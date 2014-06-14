@@ -25,19 +25,19 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	toml "github.com/BurntSushi/toml"
 	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
 	"net/http"
 	"os"
-	"encoding/json"
 )
 
 type Config struct {
-	Address      string
-	GoogleApiKey string
-	DataDir      string
+	Address        string
+	GoogleApiKey   string
+	DataDir        string
 	EnableFormPage bool
 }
 
@@ -78,30 +78,30 @@ func main() {
 }
 
 type UrlResponse struct {
-	IsListed bool `json:"isListed"`
-	List string `json:"list,omitempty"`
-	Error string `json:"error,omitempty"`
-	WarningTitle string `json:"warningTitle,omitempty"`
-	WarningText string `json:"warningText,omitempty"`
-	FullHashRequested bool `json:"fullHashRequested,omitempty"`
+	IsListed          bool   `json:"isListed"`
+	List              string `json:"list,omitempty"`
+	Error             string `json:"error,omitempty"`
+	WarningTitle      string `json:"warningTitle,omitempty"`
+	WarningText       string `json:"warningText,omitempty"`
+	FullHashRequested bool   `json:"fullHashRequested,omitempty"`
 }
 
 var warnings map[string]map[string]string = map[string]map[string]string{
 	"goog-malware-shavar": map[string]string{
 		"title": "Warning - Visiting this web site may harm your computer.",
 		"text": "This page may be a forgery or imitation of another website, " +
-				"designed to trick users into sharing personal or financial " +
-				"information. Entering any personal information on this page " +
-				"may result in identity theft or other abuse. You can find " +
-				"out more about phishing from http://www.antiphishing.org/",
+			"designed to trick users into sharing personal or financial " +
+			"information. Entering any personal information on this page " +
+			"may result in identity theft or other abuse. You can find " +
+			"out more about phishing from http://www.antiphishing.org/",
 	},
 	"googpub-phish-shavar": map[string]string{
 		"title": "Warning - Suspected phishing page.",
 		"text": "This page appears to contain malicious code that could be " +
-				"downloaded to your computer without your consent. You can " +
-				"learn more about harmful web content including viruses and " +
-				"other malicious code and how to protect your computer at " +
-				"http://StopBadware.org/",
+			"downloaded to your computer without your consent. You can " +
+			"learn more about harmful web content including viruses and " +
+			"other malicious code and how to protect your computer at " +
+			"http://StopBadware.org/",
 	},
 }
 
@@ -159,7 +159,6 @@ $.post("/", obj, function(data, textStatus, jqXHR) {
 	`
 	fmt.Fprint(w, html)
 }
-
 
 func queryUrl(url string, isBlocking bool) (response *UrlResponse) {
 	response = new(UrlResponse)
@@ -224,4 +223,3 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprint(w, string(txtOutput))
 }
-
