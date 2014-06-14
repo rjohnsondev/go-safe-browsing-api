@@ -37,7 +37,7 @@ import (
 // Canonicalize a URL as needed for safe browsing lookups.
 // This is required before obtaining the host key or generating
 // url lookup iterations.
-func Canonicalize(fullurl string) (canonicalized string, err error) {
+func Canonicalize(fullurl string) (canonicalized string) {
 	// basic trim
 	fullurl = strings.TrimSpace(fullurl)
 	// add default http protocol
@@ -63,7 +63,7 @@ func Canonicalize(fullurl string) (canonicalized string, err error) {
 
 	fullurl = escapeUrl(fullurl)
 
-	return fullurl, nil
+	return fullurl
 }
 
 func canonicalizeHostname(fullurl string) (canonicalized string) {
@@ -267,7 +267,7 @@ func stripProtocol(fullurl string) (url string) {
 // Generate all required iterations of the URL for checking against the
 // lookup table.
 // NOTE: We assume that the URL has already be Canonicalized
-func GenerateTestCandidates(url string) (urls []string, err error) {
+func GenerateTestCandidates(url string) (urls []string) {
 	urls = make([]string, 0)
 	values := iterateHostnames(url)
 	for _, val := range values {
@@ -277,7 +277,7 @@ func GenerateTestCandidates(url string) (urls []string, err error) {
 			urls = append(urls, path)
 		}
 	}
-	return urls, nil
+	return urls
 }
 
 // Extract the host from a URL in a format suitable for hashing to generate

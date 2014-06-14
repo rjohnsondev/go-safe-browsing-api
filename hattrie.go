@@ -54,12 +54,12 @@ char* hattrie_iter_key_string(hattrie_iter_t* i) {
 import "C"
 
 import (
-	"unsafe"
 	"runtime"
+	"unsafe"
 )
 
 type HatTrie struct {
-	trie    *C.hattrie_t
+	trie *C.hattrie_t
 }
 
 func finalizeHatTrie(c *HatTrie) {
@@ -111,7 +111,7 @@ func (h *HatTrie) Iterator() *HatTrieIterator {
 	return hi
 }
 
-func (i *HatTrieIterator) Next() (string) {
+func (i *HatTrieIterator) Next() string {
 	if C.hattrie_iter_finished(i.iterator) {
 		return ""
 	}

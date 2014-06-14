@@ -36,7 +36,7 @@ func TestIterator(t *testing.T) {
 	trie.Set("a")
 	trie.Set("ab")
 	trie.Set("abc")
-	i := trie.Iterator();
+	i := trie.Iterator()
 	if key := i.Next(); key != "a" {
 		t.Fatal("iterator failed")
 	}

@@ -30,84 +30,84 @@ import (
 )
 
 func TestParseChunkList(t *testing.T) {
-    compareListAndString := func (list []int, str string) error {
-        listOutput, err := parseChunkRange(str)
-        if err != nil {
-            return fmt.Errorf("Error parsing range: %s", err)
-        }
-        for _, value := range list {
-            if _, exists := listOutput[ChunkNum(value)]; !exists {
-                return fmt.Errorf("Missed value: %d", value)
-            }
-        }
-        return nil
-    }
-    if err := compareListAndString([]int{ 1 }, "1"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 2 }, "1-2"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 3 }, "1,3"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 2, 3 }, "1-3"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 2, 3, 5, 6 }, "1-3,5-6"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 3, 5 }, "1,3,5"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 2, 3, 4, 5, 6 }, "1-6"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 3, 4, 5, 6 }, "1,3-6"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 1, 5, 6, 7, 10 }, "1,5-7,10"); err != nil {
-        t.Error(err)
-    }
-    if err := compareListAndString([]int{ 2, 3, 4, 5, 10 }, "2-5,10"); err != nil {
-        t.Error(err)
-    }
+	compareListAndString := func(list []int, str string) error {
+		listOutput, err := parseChunkRange(str)
+		if err != nil {
+			return fmt.Errorf("Error parsing range: %s", err)
+		}
+		for _, value := range list {
+			if _, exists := listOutput[ChunkNum(value)]; !exists {
+				return fmt.Errorf("Missed value: %d", value)
+			}
+		}
+		return nil
+	}
+	if err := compareListAndString([]int{1}, "1"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 2}, "1-2"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 3}, "1,3"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 2, 3}, "1-3"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 2, 3, 5, 6}, "1-3,5-6"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 3, 5}, "1,3,5"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 2, 3, 4, 5, 6}, "1-6"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 3, 4, 5, 6}, "1,3-6"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{1, 5, 6, 7, 10}, "1,5-7,10"); err != nil {
+		t.Error(err)
+	}
+	if err := compareListAndString([]int{2, 3, 4, 5, 10}, "2-5,10"); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestBuildChunkList(t *testing.T) {
-	list := map[ChunkNum]bool {
+	list := map[ChunkNum]bool{
 		1: true,
 	}
 	listOutput := buildChunkRanges(list)
 	if listOutput != "1" {
-		t.Errorf("Failed to generate for list 1: "+listOutput)
+		t.Errorf("Failed to generate for list 1: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
+	list = map[ChunkNum]bool{
 		1: true,
 		2: true,
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1-2" {
-		t.Errorf("Failed to generate for list 2: "+listOutput)
+		t.Errorf("Failed to generate for list 2: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
+	list = map[ChunkNum]bool{
 		1: true,
 		3: true,
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1,3" {
-		t.Errorf("Failed to generate for list 3: "+listOutput)
+		t.Errorf("Failed to generate for list 3: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
+	list = map[ChunkNum]bool{
 		1: true,
 		2: true,
 		3: true,
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1-3" {
-		t.Errorf("Failed to generate for list 4: "+listOutput)
+		t.Errorf("Failed to generate for list 4: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
+	list = map[ChunkNum]bool{
 		1: true,
 		2: true,
 		3: true,
@@ -116,18 +116,18 @@ func TestBuildChunkList(t *testing.T) {
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1-3,5-6" {
-		t.Errorf("Failed to generate for list 5: "+listOutput)
+		t.Errorf("Failed to generate for list 5: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
+	list = map[ChunkNum]bool{
 		1: true,
 		3: true,
 		5: true,
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1,3,5" {
-		t.Errorf("Failed to generate for list 6: "+listOutput)
+		t.Errorf("Failed to generate for list 6: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
+	list = map[ChunkNum]bool{
 		1: true,
 		2: true,
 		3: true,
@@ -137,9 +137,9 @@ func TestBuildChunkList(t *testing.T) {
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1-6" {
-		t.Errorf("Failed to generate for list 7: "+listOutput)
+		t.Errorf("Failed to generate for list 7: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
+	list = map[ChunkNum]bool{
 		1: true,
 		3: true,
 		4: true,
@@ -148,29 +148,28 @@ func TestBuildChunkList(t *testing.T) {
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1,3-6" {
-		t.Errorf("Failed to generate for list 8: "+listOutput)
+		t.Errorf("Failed to generate for list 8: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
-		1: true,
-		5: true,
-		6: true,
-		7: true,
+	list = map[ChunkNum]bool{
+		1:  true,
+		5:  true,
+		6:  true,
+		7:  true,
 		10: true,
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "1,5-7,10" {
-		t.Errorf("Failed to generate for list 9: "+listOutput)
+		t.Errorf("Failed to generate for list 9: " + listOutput)
 	}
-	list = map[ChunkNum]bool {
-		2: true,
-		3: true,
-		4: true,
-		5: true,
+	list = map[ChunkNum]bool{
+		2:  true,
+		3:  true,
+		4:  true,
+		5:  true,
 		10: true,
 	}
 	listOutput = buildChunkRanges(list)
 	if listOutput != "2-5,10" {
-		t.Errorf("Failed to generate for list 10: "+listOutput)
+		t.Errorf("Failed to generate for list 10: " + listOutput)
 	}
 }
-
