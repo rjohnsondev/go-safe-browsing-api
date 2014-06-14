@@ -48,7 +48,7 @@ import (
 func main() {
     key := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBB"
     dataDir := "/var/lib/safebrowsing/"
-	ss, err = safebrowsing.NewSafeBrowsing(key, dataDir)
+	sb, err = safebrowsing.NewSafeBrowsing(key, dataDir)
 	if err != nil {
 		log.Error(err)
         os.Exit(1)
@@ -119,7 +119,7 @@ if response != "" {
     } else {
         fmt.Printf("URL may be listed on: %s", response)
         // Requesting full hash in background...
-        go ss.IsListed(url)
+        go sb.IsListed(url)
     }
 }
 ```
@@ -163,7 +163,7 @@ func main() {
     // only work from local files.
 	safebrowsing.OfflineMode = true
 
-	ss, err = safebrowsing.NewSafeBrowsing(key, dataDir)
+	sb, err = safebrowsing.NewSafeBrowsing(key, dataDir)
 	...
 }
 ```
