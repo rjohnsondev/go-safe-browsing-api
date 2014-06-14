@@ -31,7 +31,6 @@ import (
 	"strings"
 )
 
-
 func buildChunkRanges(chunkIndexes map[ChunkNum]bool) string {
 	if chunkIndexes == nil || len(chunkIndexes) == 0 {
 		return ""
@@ -83,37 +82,36 @@ func buildChunkRanges(chunkIndexes map[ChunkNum]bool) string {
 }
 
 func parseChunkRange(rangeString string) (out map[ChunkNum]bool, err error) {
-    out = make(map[ChunkNum]bool)
-    rangeString = strings.TrimSpace(rangeString)
-    ranges := strings.Split(rangeString, ",")
-    for _, r := range ranges {
-        if len(r) == 0 {
-            return nil, fmt.Errorf("Invalid range")
-        }
-        numbers := strings.Split(r, "-")
-        if len(numbers) > 2 {
-            return nil, fmt.Errorf("Invalid range")
-        }
-        if len(numbers) == 1 {
-            i, err := strconv.Atoi(numbers[0])
-            if err != nil {
-                return nil, fmt.Errorf("Invalid range")
-            }
-            out[ChunkNum(i)] = true
-            continue
-        }
-        x, err := strconv.Atoi(numbers[0])
-        if err != nil {
-            return nil, fmt.Errorf("Invalid range")
-        }
-        y, err := strconv.Atoi(numbers[1])
-        if err != nil {
-            return nil, fmt.Errorf("Invalid range")
-        }
-        for ; x <= y; x++ {
-            out[ChunkNum(x)] = true
-        }
-    }
-    return out, nil
+	out = make(map[ChunkNum]bool)
+	rangeString = strings.TrimSpace(rangeString)
+	ranges := strings.Split(rangeString, ",")
+	for _, r := range ranges {
+		if len(r) == 0 {
+			return nil, fmt.Errorf("Invalid range")
+		}
+		numbers := strings.Split(r, "-")
+		if len(numbers) > 2 {
+			return nil, fmt.Errorf("Invalid range")
+		}
+		if len(numbers) == 1 {
+			i, err := strconv.Atoi(numbers[0])
+			if err != nil {
+				return nil, fmt.Errorf("Invalid range")
+			}
+			out[ChunkNum(i)] = true
+			continue
+		}
+		x, err := strconv.Atoi(numbers[0])
+		if err != nil {
+			return nil, fmt.Errorf("Invalid range")
+		}
+		y, err := strconv.Atoi(numbers[1])
+		if err != nil {
+			return nil, fmt.Errorf("Invalid range")
+		}
+		for ; x <= y; x++ {
+			out[ChunkNum(x)] = true
+		}
+	}
+	return out, nil
 }
-
