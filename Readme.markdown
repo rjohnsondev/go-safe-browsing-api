@@ -172,6 +172,33 @@ In this mode <code>IsListed</code> will always return an error complaining that
 the list has not been updated within the last 45 mins and no warnings may be
 shown to users.
 
+
+Example Webserver
+-----------------
+
+The package also includes a small JSON endpoint for the bulk querying of URLs.
+It has an additional config dependency, so it can be installed with something
+like:
+
+    go get github.com/rjohnsondev/go-safe-browsing-api
+    go get github.com/BurntSushi/toml
+	go install github.com/rjohnsondev/go-safe-browsing-api/webserver
+
+The server takes a config file as a parameter, an example one is provided with
+the source, but here's the contents for convenience:
+
+	# example config file for safe browsing server
+	address = "0.0.0.0:8080"
+	googleApiKey = ""
+	dataDir = "/tmp/safe-browsing-data"
+	# enable example usage page at /form
+	enableFormPage = true
+
+The config requires at a minimum your Google API key to be added (otherwise
+you'll get a nice non-friendly go panic).  Once up and running it provides a
+helpful example page at http://localhost:8080/form
+
+
 Other Notes
 -----------
 
