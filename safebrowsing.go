@@ -76,6 +76,14 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err
 		Logger:     Logger,
 	}
 
+	// if the dataDirectory does not currently exist, have a go at creating it:
+	err = os.MkdirAll(dataDirectory, os.ModeDir | 0700)
+	if (err != nil) {
+		ss.Logger.Error(
+			"Directory \"%s\" does not exist, and I was unable to create it!",
+			dataDirectory)
+	}
+
 	// if we are in offline mode we want to just load up the lists we
 	// currently have and work with that
 	if OfflineMode {
