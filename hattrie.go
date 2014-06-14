@@ -1,12 +1,16 @@
 package safebrowsing
 
 /*
-#cgo LDFLAGS: -lhat-trie
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <hat-trie/hat-trie.h>
+#include "hat-trie/src/hat-trie.h"
+
+#include "hat-trie/src/ahtable.c"
+#include "hat-trie/src/hat-trie.c"
+#include "hat-trie/src/misc.c"
+#include "hat-trie/src/murmurhash3.c"
 
 hattrie_t* start() {
 	hattrie_t* trie;
