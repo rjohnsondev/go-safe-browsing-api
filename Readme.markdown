@@ -11,9 +11,7 @@ https://developers.google.com/safe-browsing/developers_guide_v2
 Installation
 ------------
 
-First you'll need hat-trie: https://github.com/dcjones/hat-trie
-
-Once installed, this should do the trick:
+This should do the trick:
 
     go get github.com/rjohnsondev/go-safe-browsing-api
 
@@ -205,7 +203,8 @@ Other Notes
 ### Memory Usage
 
 The current implementation stores hashes in a reasonably effecient hat-trie
-data structure.  This results in a memory footprint of approximately 35MB.
+data structure (bundled from https://github.com/dcjones/hat-trie).  This
+results in a memory footprint of approximately 35MB.
 
 ### File Format
 
