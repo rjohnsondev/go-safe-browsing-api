@@ -1,19 +1,20 @@
 Google Safe Browsing API
 ========================
 
-[![Build Status](https://travis-ci.org/rjohnsondev/go-safe-browsing-api.png?branch=master)](https://travis-ci.org/rjohnsondev/go-safe-browsing-api)
-[![Coverage Status](https://coveralls.io/repos/rjohnsondev/go-safe-browsing-api/badge.png?branch=HEAD)](https://coveralls.io/r/rjohnsondev/go-safe-browsing-api?branch=HEAD)
+[![Build Status](https://travis-ci.org/kgilonne/go-safe-browsing-api.svg)](https://travis-ci.org/kgilonne/go-safe-browsing-api)
+[![Coverage Status](https://coveralls.io/repos/kgilonne/go-safe-browsing-api/badge.png)](https://coveralls.io/r/kgilonne/go-safe-browsing-api)
 
-This library provides client functionality for version 2 of the Google safe
+This library provides client functionality for version 3 of the Google safe
 browsing API as per:
-https://developers.google.com/safe-browsing/developers_guide_v2
+https://developers.google.com/safe-browsing/developers_guide_v3
 
 Installation
 ------------
 
 This should do the trick:
 
-    go get github.com/rjohnsondev/go-safe-browsing-api
+    go get code.google.com/p/goprotobuf/{proto,protoc-gen-go}
+    go get github.com/kgilonne/go-safe-browsing-api
 
 Usage
 -----
@@ -21,12 +22,13 @@ Usage
 The library requires at least your Safe Browsing API key and a writable
 directory to store the list data.
 
-It it recommended you also set the <code>Client</code> and
-<code>AppVersion</code> globals to something appropriate:
+It it recommended you also set the <code>Client</code>, <code>AppVersion</code> and
+<code>ProtocolVersion</code> globals to something appropriate:
 
 ```go
 safebrowsing.Client := "api"
-safebrowsing.AppVersion := "1.0"
+safebrowsing.AppVersion := "1.5.2"
+safebrowsing.ProtocolVersion := "3.0"
 ```
 
 Calling <code>NewSafeBrowsing</code> immediately attempts to contact the google
@@ -38,17 +40,17 @@ at the interval requested by google.
 package main
 
 import (
-	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
-    log          "github.com/rjohnsondev/log4go-raven"
-    "os"
+       safebrowsing "github.com/kgilonne/go-safe-browsing-api"
+       "os"
+       "fmt"
 )
 
 func main() {
     key := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBB"
-    dataDir := "/var/lib/safebrowsing/"
-	sb, err = safebrowsing.NewSafeBrowsing(key, dataDir)
+    dataDir := "./data"
+	sb, err := safebrowsing.NewSafeBrowsing(key, dataDir)
 	if err != nil {
-		log.Error(err)
+		fmt.Println(err)
         os.Exit(1)
 	}
 }
@@ -71,12 +73,12 @@ has not already done so for that URL) which can be slow.
 ```go
 response, err := sb.IsListed(url)
 if err != nil {
-    fmt.Printf("Error quering URL: %s", err)
+    fmt.Println("Error quering URL:", err)
 }
 if response == "" {
-    fmt.Printf("not listed")
+    fmt.Println("not listed")
 } else {
-    fmt.Printf("URL listed on: %s", response)
+    fmt.Println("URL listed on:", response)
 }
 ```
 
@@ -89,15 +91,15 @@ return value is True AND the last successful update from Google was in the last
 ```go
 response, fullHashMatch, err := sb.MightBeListed(url)
 if err != nil {
-    fmt.Printf("Error quering URL: %s", err)
+    fmt.Println("Error quering URL:", err)
 }
 if response == "" {
-    fmt.Printf("not listed")
+    fmt.Println("not listed")
 } else {
     if fullHashMatch && sb.IsUpToDate() {
-        fmt.Printf("URL listed on: %s", response)
+        fmt.Println("URL listed on:", response)
     } else {
-        fmt.Printf("URL may be listed on: %s", response)
+        fmt.Println("URL may be listed on:", response)
     }
 }
 ```
@@ -109,35 +111,16 @@ same url:
 ```go
 response, fullHashMatch, err := sb.MightBeListed(url)
 if err != nil {
-    fmt.Printf("Error quering URL: %s", err)
+    fmt.Println("Error quering URL:", err)
 }
 if response != "" {
     if fullHashMatch && sb.IsUpToDate() {
-        fmt.Printf("URL listed on: %s", response)
+        fmt.Println("URL listed on:", response)
     } else {
-        fmt.Printf("URL may be listed on: %s", response)
+        fmt.Println("URL may be listed on:", response)
         // Requesting full hash in background...
         go sb.IsListed(url)
     }
-}
-```
-
-### Logging Injection
-
-The library includes a safebrowsing.logger interface which can be used to
-attach logging facilities to the library.  The interface matches the log4go
-Logger, so you can drop that in pretty easily:
-
-```go
-package main
-
-import (
-	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
-    log          "github.com/rjohnsondev/log4go-raven"
-)
-
-func main() {
-    safebrowsing.Logger = log.NewDefaultLogger(log.DEBUG)
 }
 ```
 
@@ -156,7 +139,7 @@ import (
 
 func main() {
     key := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBB"
-    dataDir := "/var/lib/safebrowsing/"
+    dataDir := "./data"
 
     // only work from local files.
 	safebrowsing.OfflineMode = true
@@ -180,7 +163,7 @@ like:
 
     go get github.com/rjohnsondev/go-safe-browsing-api
     go get github.com/BurntSushi/toml
-	go install github.com/rjohnsondev/go-safe-browsing-api/webserver
+    go install github.com/kgilonne/go-safe-browsing-api/webserver
 
 The server takes a config file as a parameter, an example one is provided with
 the source, but here's the contents for convenience:

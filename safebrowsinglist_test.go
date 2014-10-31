@@ -1,5 +1,6 @@
 /*
 Copyright (c) 2013, Richard Johnson
+Copyright (c) 2014, Kilian Gilonne
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -23,6 +24,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 package safebrowsing
+
+import "code.google.com/p/goprotobuf/proto"
 
 import (
 	"io/ioutil"
@@ -48,61 +51,46 @@ func TestLoad(t *testing.T) {
 	}
 	ssl := newSafeBrowsingList("test", testFilename)
 
-	chunk := &Chunk{
-		ChunkNum:  1,
-		ChunkType: CHUNK_TYPE_ADD,
-		HashLen:   4,
-		Hashes: map[HostHash][]LookupHash{
-			HostHash("test"): []LookupHash{
-				LookupHash("test"),
-				LookupHash("1234"),
-			},
-		},
+	chunk := &ChunkData{
+		ChunkNumber: proto.Int32(1),
+		ChunkType:   CHUNK_TYPE_ADD.Enum(),
+		PrefixType:  PREFIX_4B.Enum(),
+		Hashes:      []byte("test1234"),
 	}
-	ssl.load([]*Chunk{chunk})
-	if !ssl.Lookup.Get("testtest") {
+	ssl.load([]*ChunkData{chunk})
+	if !ssl.Lookup.Get("test") {
+		t.Errorf("Hashes were not added to LookupMap")
+		return
+	}
+	if !ssl.Lookup.Get("1234") {
 		t.Errorf("Hashes were not added to LookupMap")
 		return
 	}
 
-	chunk = &Chunk{
-		ChunkNum:  1,
-		ChunkType: CHUNK_TYPE_SUB,
-		HashLen:   4,
-		Hashes: map[HostHash][]LookupHash{
-			HostHash("test"): []LookupHash{
-				LookupHash("test"),
-			},
-		},
+	chunk = &ChunkData{
+		ChunkNumber: proto.Int32(1),
+		ChunkType:   CHUNK_TYPE_SUB.Enum(),
+		PrefixType:  PREFIX_4B.Enum(),
+		Hashes:      []byte("test"),
 	}
-	ssl.load([]*Chunk{chunk})
-	if ssl.Lookup.Get("testtest") {
+	ssl.load([]*ChunkData{chunk})
+	if ssl.Lookup.Get("test") {
 		t.Errorf("Hashes were not deleted from LookupMap")
 		return
 	}
 
-	chunks := []*Chunk{
-		&Chunk{
-			ChunkNum:  2,
-			ChunkType: CHUNK_TYPE_ADD,
-			HashLen:   32,
-			Hashes: map[HostHash][]LookupHash{
-				HostHash("test"): []LookupHash{
-					LookupHash("test1234123412341234123412341234"),
-					LookupHash("12341234123412341234123412341234"),
-				},
-			},
+	chunks := []*ChunkData{
+		&ChunkData{
+			ChunkNumber: proto.Int32(2),
+			ChunkType:   CHUNK_TYPE_SUB.Enum(),
+			PrefixType:  PREFIX_32B.Enum(),
+			Hashes:      []byte("test123412341234123412341234123412341234123412341234123412341234"),
 		},
-		&Chunk{
-			ChunkNum:  2,
-			ChunkType: CHUNK_TYPE_SUB,
-			HashLen:   4,
-			Hashes: map[HostHash][]LookupHash{
-				HostHash("test"): []LookupHash{
-					LookupHash("test"),
-					LookupHash("1234"),
-				},
-			},
+		&ChunkData{
+			ChunkNumber: proto.Int32(2),
+			ChunkType:   CHUNK_TYPE_ADD.Enum(),
+			PrefixType:  PREFIX_4B.Enum(),
+			Hashes:      []byte("test1234"),
 		},
 	}
 	ssl.load(chunks)
@@ -117,17 +105,17 @@ func TestLoad(t *testing.T) {
 	}
 
 	// remove some of the chunks
-	ssl.DeleteChunks = map[ChunkType]map[ChunkNum]bool{
+	ssl.DeleteChunks = map[ChunkData_ChunkType]map[ChunkNum]bool{
 		CHUNK_TYPE_ADD: map[ChunkNum]bool{1: true},
 		CHUNK_TYPE_SUB: map[ChunkNum]bool{1: true, 2: true},
 	}
 
 	ssl.load(nil)
 
-	// should have 2 of the entries in there again.
-	i = ssl.FullHashes.Iterator()
-	if ssl.FullHashes.Get(i.Next()) != true || ssl.FullHashes.Get(i.Next()) != true {
-		t.Errorf("Hashes were not deleted from LookupMap")
+	// should have 2 of the entries in there again, test and 1234
+	i = ssl.Lookup.Iterator()
+	if ssl.Lookup.Get(i.Next()) != true || ssl.Lookup.Get(i.Next()) != true {
+		t.Errorf("Hashes were deleted from LookupMap")
 		return
 	}
 
