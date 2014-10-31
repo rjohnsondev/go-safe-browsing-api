@@ -2,7 +2,7 @@ Google Safe Browsing API
 ========================
 
 [![Build Status](https://travis-ci.org/kgilonne/go-safe-browsing-api.svg)](https://travis-ci.org/kgilonne/go-safe-browsing-api)
-[![Coverage Status](https://coveralls.io/repos/kgilonne/go-safe-browsing-api/badge.png)](https://coveralls.io/r/kgilonne/go-safe-browsing-api)
+[![Coverage Status](https://coveralls.io/repos/kgilonne/go-safe-browsing-api/badge.png?branch=master)](https://coveralls.io/r/kgilonne/go-safe-browsing-api?branch=master)
 
 This library provides client functionality for version 3 of the Google safe
 browsing API as per:
@@ -134,7 +134,7 @@ setting the <code>OfflineMode</code> global variable:
 package main
 
 import (
-	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
+	safebrowsing "github.com/kgilonne/go-safe-browsing-api"
 )
 
 func main() {
