@@ -64,6 +64,7 @@ var Logger logger = new(DefaultLogger)
 var Client string = "api"
 var AppVersion string = "1.0"
 var OfflineMode bool = false
+var Transport *http.Transport = &http.Transport{}
 
 func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err error) {
 	ss = &SafeBrowsing{
