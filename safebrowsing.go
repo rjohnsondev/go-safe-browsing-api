@@ -70,6 +70,7 @@ var Client string = "api"
 var AppVersion string = "1.5.2"
 var ProtocolVersion string = "3.0"
 var OfflineMode bool = false
+var Transport *http.Transport = &http.Transport{}
 
 func NewSafeBrowsing(apiKey string, dataDirectory string) (sb *SafeBrowsing, err error) {
 	sb = &SafeBrowsing{
