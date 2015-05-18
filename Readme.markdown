@@ -13,7 +13,7 @@ Installation
 
 This should do the trick:
 
-    go get code.google.com/p/goprotobuf/{proto,protoc-gen-go}
+    go get github.com/golang/protobuf/proto
     go get github.com/kgilonne/go-safe-browsing-api
 
 Usage

@@ -26,13 +26,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 package safebrowsing
 
 import (
-	//	"fmt"
+	//"fmt"
 	"os"
 	"testing"
 	"time"
 	//"bytes"
 	"bytes"
-	//	"encoding/hex"
+	//"encoding/hex"
 	"crypto/sha256"
 	"io/ioutil"
 	"net/http"
