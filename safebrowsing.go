@@ -112,12 +112,12 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (sb *SafeBrowsing, err
 	}
 
 	// normal mode, contact the server for updates, etc.
-	err = sb.updateProcess()
+	err = sb.UpdateProcess()
 
 	return sb, err
 }
 
-func (sb *SafeBrowsing) updateProcess() (err error) {
+func (sb *SafeBrowsing) UpdateProcess() (err error) {
 
 	sb.Logger.Info("Requesting list of lists from server...")
 	err = sb.requestSafeBrowsingLists()

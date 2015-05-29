@@ -29,7 +29,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -239,7 +238,7 @@ func (sb *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes m
 }
 
 // Process the retrieved full hashes, saving them to disk
-func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) error {
+func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) (err error) {
 	//	defer debug.FreeOSMemory()
 
 	split := strings.Split(data, "\n")
@@ -255,15 +254,17 @@ func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) error {
 	if split_sz <= 2 {
 		return nil
 	}
-	for i, len_splitsplit, chunk_sz := 1, 0, 0; (i + 1) < split_sz; i += chunk_sz {
+	for i, len_splitsplit, chunk_sz := 1, 0, 0; (i+1) < split_sz && err != nil; i += chunk_sz {
 		splitsplit := strings.Split(split[i], ":")
 		len_splitsplit = len(splitsplit)
 		if len_splitsplit < 3 {
 			return fmt.Errorf("Malformated response: %s", split[i])
 		} else if len_splitsplit == 4 {
 			num_resp, err := strconv.Atoi(splitsplit[2])
-			if err != nil || (num_resp+2+i) > split_sz {
-				break
+			if err != nil {
+				return err
+			} else if (num_resp + 2 + i) > split_sz {
+				return fmt.Errorf("Malformated response: %s", split[i])
 			}
 			chunk_sz = 2 + num_resp
 		} else {
@@ -271,21 +272,28 @@ func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) error {
 		}
 		err = sb.readFullHashChunk(split[i+1], splitsplit[0], host)
 	}
-	if err != io.EOF {
-		return err
-	}
-	return nil
+	return err
 }
 
 func (sb *SafeBrowsing) readFullHashChunk(hashes string, list string, host HostHash) (err error) {
+	if hashes == "" || list == "" || host == "" {
+		return fmt.Errorf("Imcomplete data to readFullHashChunck()")
+	}
 
 	hashlen := 32
 	hasheslen := len(hashes)
 	for i := 0; (i + hashlen) <= hasheslen; i += hashlen {
 		hash := hashes[i:(i + hashlen)]
-		//		sb.Lists[list].Logger.Debug("Adding full length hash: %s",
-		//			hex.EncodeToString([]byte(hash)))
+		//sb.Lists[list].Logger.Debug("Adding full length hash: %s",
+		//hex.EncodeToString([]byte(hash)))
+		if sb.Lists == nil {
+			return fmt.Errorf("Google safe browsing lists have not been initialized")
+		} else if sb.Lists[list] == nil {
+			return fmt.Errorf("Google safe browsing list (%s) have not been initialized", list)
+		}
+		sb.Lists[list].updateLock.Lock()
 		sb.Lists[list].FullHashes.Set(hash)
+		sb.Lists[list].updateLock.Unlock()
 	}
 	return nil
 }
