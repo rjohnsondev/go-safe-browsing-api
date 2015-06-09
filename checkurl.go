@@ -78,8 +78,7 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 
 	if matchFullHash && !sb.IsUpToDate() {
 		// we haven't had a sucessful update in the last 45 mins!  abort!
-		return "", false, fmt.Errorf(
-			"Unable to check listing, list hasn't been updated for 45 mins")
+		return "", false, fmt.Errorf("Unable to check listing, list hasn't been updated for 45 mins")
 	}
 
 	// first Canonicalize
@@ -254,7 +253,7 @@ func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) (err error
 	if split_sz <= 2 {
 		return nil
 	}
-	for i, len_splitsplit, chunk_sz := 1, 0, 0; (i+1) < split_sz && err != nil; i += chunk_sz {
+	for i, len_splitsplit, chunk_sz := 1, 0, 0; (i+1) < split_sz && err == nil; i += chunk_sz {
 		splitsplit := strings.Split(split[i], ":")
 		len_splitsplit = len(splitsplit)
 		if len_splitsplit < 3 {
