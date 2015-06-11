@@ -29,7 +29,7 @@ import (
 	"flag"
 	"fmt"
 	toml "github.com/BurntSushi/toml"
-	safebrowsing "github.com/kgilonne/go-safe-browsing-api"
+	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
 	"net/http"
 	"os"
 )

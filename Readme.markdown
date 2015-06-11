@@ -1,8 +1,8 @@
 Google Safe Browsing API
 ========================
 
-[![Build Status](https://travis-ci.org/kgilonne/go-safe-browsing-api.svg)](https://travis-ci.org/kgilonne/go-safe-browsing-api)
-[![Coverage Status](https://coveralls.io/repos/kgilonne/go-safe-browsing-api/badge.png?branch=master)](https://coveralls.io/r/kgilonne/go-safe-browsing-api?branch=master)
+[![Build Status](https://travis-ci.org/rjohnsondev/go-safe-browsing-api.svg)](https://travis-ci.org/rjohnsondev/go-safe-browsing-api)
+[![Coverage Status](https://coveralls.io/repos/rjohnsondev/go-safe-browsing-api/badge.png?branch=master)](https://coveralls.io/r/rjohnsondev/go-safe-browsing-api?branch=master)
 
 This library provides client functionality for version 3 of the Google safe
 browsing API as per:
@@ -14,7 +14,7 @@ Installation
 This should do the trick:
 
     go get github.com/golang/protobuf/proto
-    go get github.com/kgilonne/go-safe-browsing-api
+    go get github.com/rjohnsondev/go-safe-browsing-api
 
 Usage
 -----
@@ -40,7 +40,7 @@ at the interval requested by google.
 package main
 
 import (
-       safebrowsing "github.com/kgilonne/go-safe-browsing-api"
+       safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
        "os"
        "fmt"
 )
@@ -134,7 +134,7 @@ setting the <code>OfflineMode</code> global variable:
 package main
 
 import (
-	safebrowsing "github.com/kgilonne/go-safe-browsing-api"
+	safebrowsing "github.com/rjohnsondev/go-safe-browsing-api"
 )
 
 func main() {
@@ -163,7 +163,7 @@ like:
 
     go get github.com/rjohnsondev/go-safe-browsing-api
     go get github.com/BurntSushi/toml
-    go install github.com/kgilonne/go-safe-browsing-api/webserver
+    go install github.com/rjohnsondev/go-safe-browsing-api/webserver
 
 The server takes a config file as a parameter, an example one is provided with
 the source, but here's the contents for convenience:
