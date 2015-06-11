@@ -7,4 +7,4 @@ before_install:
     - go get github.com/mattn/goveralls
 script:
     - go test -covermode=count -coverprofile=profile.cov
-    - $HOME/gopath/bin/goveralls -repotoken nQ6xM1UC8iomu6dXVZ3qDTz9hqRiQqwDW -coverprofile=profile.cov -service=travis-ci
+    - $HOME/gopath/bin/goveralls -repotoken z9bxGeTThOUlkUvGFuZLJ6PezhGyLXCGL -coverprofile=profile.cov -service=travis-ci

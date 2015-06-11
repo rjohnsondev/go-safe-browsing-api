@@ -1,5 +1,6 @@
 /*
 Copyright (c) 2013, Richard Johnson
+Copyright (c) 2014, Kilian Gilonne
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -27,59 +28,67 @@ package safebrowsing
 import (
 	"bufio"
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
 	"os"
-	"runtime/debug"
+	//	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
 )
+
+type HostHash string
+type LookupHash string
+
+type SafeBrowsing struct {
+	DataDir string
+
+	Key             string
+	Client          string
+	AppVersion      string
+	ProtocolVersion string
+
+	UpdateDelay int
+	LastUpdated time.Time
+
+	Lists   map[string]*SafeBrowsingList
+	Cache   map[HostHash]*FullHashCache
+	request func(string, string, bool) (*http.Response, error)
+
+	Logger logger
+}
 
 var SupportedLists map[string]bool = map[string]bool{
 	"goog-malware-shavar":  true,
 	"googpub-phish-shavar": true,
 }
 
-type HostHash string
-type LookupHash string
-
-type SafeBrowsing struct {
-	Key         string
-	Client      string
-	AppVersion  string
-	UpdateDelay int
-	LastUpdated time.Time
-	Lists       map[string]*SafeBrowsingList
-	DataDir     string
-	request     func(string, string, bool) (*http.Response, error)
-	Logger      logger
-}
-
 var Logger logger = new(DefaultLogger)
 var Client string = "api"
-var AppVersion string = "1.0"
+var AppVersion string = "1.5.2"
+var ProtocolVersion string = "3.0"
 var OfflineMode bool = false
+var Transport *http.Transport = &http.Transport{}
 
-func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err error) {
-	ss = &SafeBrowsing{
-		Key:        apiKey,
-		Client:     Client,
-		AppVersion: AppVersion,
-		DataDir:    dataDirectory,
-		Lists:      make(map[string]*SafeBrowsingList),
-		request:    request,
-		Logger:     Logger,
+func NewSafeBrowsing(apiKey string, dataDirectory string) (sb *SafeBrowsing, err error) {
+	sb = &SafeBrowsing{
+		Key:             apiKey,
+		Client:          Client,
+		AppVersion:      AppVersion,
+		ProtocolVersion: ProtocolVersion,
+		DataDir:         dataDirectory,
+		Lists:           make(map[string]*SafeBrowsingList),
+		Cache:           make(map[HostHash]*FullHashCache),
+		request:         request,
+		Logger:          Logger,
 	}
 
 	// if the dataDirectory does not currently exist, have a go at creating it:
 	err = os.MkdirAll(dataDirectory, os.ModeDir|0700)
 	if err != nil {
-		ss.Logger.Error(
+		sb.Logger.Error(
 			"Directory \"%s\" does not exist, and I was unable to create it!",
 			dataDirectory)
 	}
@@ -88,112 +97,69 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (ss *SafeBrowsing, err
 	// currently have and work with that
 	if OfflineMode {
 		for listName, _ := range SupportedLists {
-			fileName := ss.DataDir + "/" + listName + ".dat"
+			fileName := sb.DataDir + "/" + listName + ".dat"
 			tmpList := newSafeBrowsingList(listName, fileName)
-			tmpList.Logger = ss.Logger
+			tmpList.Logger = sb.Logger
 			err := tmpList.load(nil)
 			if err != nil {
-				ss.Logger.Warn("Error loading list %s: %s", listName, err)
+				sb.Logger.Warn("Error loading list %s: %s", listName, err)
 				continue
 			}
-			ss.Lists[listName] = tmpList
+			sb.Lists[listName] = tmpList
 		}
-		debug.FreeOSMemory()
-		return ss, nil
+		//		debug.FreeOSMemory()
+		return sb, nil
 	}
 
 	// normal mode, contact the server for updates, etc.
-	err = ss.loadExistingData()
-	if err != nil {
-		return nil, err
-	}
-	err = ss.update()
-	if err != nil {
-		return nil, err
-	}
-	go ss.reloadLoop()
-	return ss, nil
+	err = sb.UpdateProcess()
+
+	return sb, err
 }
 
-func (ss *SafeBrowsing) reloadLoop() {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	randomFloat := r.Float64()
-	for {
-		// wait the update delay
-		duration := time.Duration(ss.UpdateDelay) * time.Second
-		ss.Logger.Info("Next update in %d seconds", ss.UpdateDelay)
-		time.Sleep(duration)
-		err := ss.update()
-		for x := 0; err != nil; x++ {
-			// first we wait 1 min, than some time between 30-60 mins
-			// doubling until we stop at 480 mins or succeed
-			mins := (30 * (randomFloat + 1) * float64(x)) + 1
-			if mins > 480 {
-				mins = 480
-			}
-			ss.Logger.Warn(
-				"Update failed, in back-off mode (waiting %d mins): %s",
-				mins,
-				err,
-			)
-			time.Sleep(time.Duration(mins) * time.Minute)
-			err = ss.update()
-		}
-		debug.FreeOSMemory()
-	}
-}
+func (sb *SafeBrowsing) UpdateProcess() (err error) {
 
-func (ss *SafeBrowsing) loadExistingData() error {
-	ss.Logger.Info("Requesting list of lists from server...")
-	err := ss.requestSafeBrowsingLists()
+	sb.Logger.Info("Requesting list of lists from server...")
+	err = sb.requestSafeBrowsingLists()
 	if err != nil {
 		return err
 	}
-
-	ss.Logger.Info("Loading existing data....")
-	for _, ssl := range ss.Lists {
-		err := ssl.load(nil)
-		if err != nil {
-			return fmt.Errorf("Error loading list from %s: %s", ss.DataDir, err)
-		}
-		debug.FreeOSMemory()
+	err = sb.loadExistingData()
+	if err != nil {
+		return err
 	}
+	err, status := sb.update()
+	if (err != nil) && (status != 503) {
+		return err
+	} else if status == 503 {
+		sb.Logger.Warn("GSB service temporarily unavailable")
+	}
+
+	go sb.reloadLoop()
 	return nil
 }
 
-func (ss *SafeBrowsing) update() error {
+func (sb *SafeBrowsing) requestSafeBrowsingLists() (err error) {
+	//	defer debug.FreeOSMemory()
 
-	ss.Logger.Info("Requesting updates...")
-	if err := ss.requestRedirectList(); err != nil {
-		return fmt.Errorf("Unable to retrieve updates: %s", err.Error())
-	}
-	for listName, list := range ss.Lists {
-		if err := list.loadDataFromRedirectLists(); err != nil {
-			return fmt.Errorf("Unable to process updates for %s: %s", listName, err.Error())
-		}
-	}
-
-	// update the last updated time
-	ss.LastUpdated = time.Now()
-	return nil
-}
-
-func (ss *SafeBrowsing) requestSafeBrowsingLists() (err error) {
 	url := fmt.Sprintf(
-		"http://safebrowsing.clients.google.com/safebrowsing/list?"+
-			"client=%s&apikey=%s&appver=%s&pver=2.2",
-		ss.Client, ss.Key, ss.AppVersion)
-	listresp, err := ss.request(url, "", true)
+		"https://safebrowsing.google.com/safebrowsing/list?"+
+			"client=%s&key=%s&appver=%s&pver=%s",
+		sb.Client, sb.Key, sb.AppVersion, sb.ProtocolVersion)
+
+	listresp, err := sb.request(url, "", true)
 	if err != nil {
 		return err
 	}
-	if listresp.StatusCode != 200 {
+	if listresp.StatusCode == 503 {
+		sb.requestSafeBrowsingLists()
+	} else if listresp.StatusCode != 200 {
 		return fmt.Errorf("Unexpected server response code: %d", listresp.StatusCode)
 	}
-	return ss.processSafeBrowsingLists(listresp.Body)
+	return sb.processSafeBrowsingLists(listresp.Body)
 }
 
-func (ss *SafeBrowsing) processSafeBrowsingLists(body io.Reader) (err error) {
+func (sb *SafeBrowsing) processSafeBrowsingLists(body io.Reader) (err error) {
 	buf := bytes.Buffer{}
 	if _, err = buf.ReadFrom(body); err != nil {
 		return fmt.Errorf("Unable to read list data: %s", err)
@@ -202,363 +168,199 @@ func (ss *SafeBrowsing) processSafeBrowsingLists(body io.Reader) (err error) {
 		if _, exists := SupportedLists[listName]; !exists {
 			continue
 		}
-		fileName := ss.DataDir + "/" + listName + ".dat"
+		fileName := sb.DataDir + "/" + listName + ".dat"
 		tmpList := newSafeBrowsingList(listName, fileName)
-		tmpList.Logger = ss.Logger
-		ss.Lists[listName] = tmpList
+		tmpList.Logger = sb.Logger
+		sb.Lists[listName] = tmpList
 	}
 	return nil
 }
 
-func (ss *SafeBrowsing) requestRedirectList() error {
+func (sb *SafeBrowsing) loadExistingData() error {
+
+	sb.Logger.Info("Loading existing data....")
+	for _, sbl := range sb.Lists {
+		err := sbl.load(nil)
+		if err != nil {
+			return fmt.Errorf("Error loading list from %s: %s", sb.DataDir, err)
+		}
+		//		debug.FreeOSMemory()
+	}
+	return nil
+}
+
+func (sb *SafeBrowsing) update() (err error, status int) {
+
+	sb.Logger.Info("Requesting updates...")
+	if err, status = sb.requestRedirectList(); err != nil {
+		return fmt.Errorf("Unable to retrieve updates: %s", err.Error()), status
+	}
+
+	for listName, list := range sb.Lists {
+		if err = list.loadDataFromRedirectLists(); err != nil {
+			return fmt.Errorf("Unable to process updates for %s: %s", listName, err.Error()), status
+		}
+	}
+
+	// update the last updated time
+	sb.LastUpdated = time.Now()
+	return nil, status
+}
+
+func (sb *SafeBrowsing) requestRedirectList() (err error, status int) {
+	//	defer debug.FreeOSMemory()
+
 	url := fmt.Sprintf(
-		"http://safebrowsing.clients.google.com/safebrowsing/downloads?"+
-			"client=%s&apikey=%s&appver=%s&pver=2.2",
-		ss.Client, ss.Key, ss.AppVersion)
+		"https://safebrowsing.google.com/safebrowsing/downloads?"+
+			"client=%s&key=%s&appver=%s&pver=%s",
+		sb.Client, sb.Key, sb.AppVersion, sb.ProtocolVersion)
 
 	listsStr := ""
-	for list, ssl := range ss.Lists {
+	for list, sbl := range sb.Lists {
 		listsStr += string(list) + ";"
-		addChunkRange := ssl.ChunkRanges[CHUNK_TYPE_ADD]
+		addChunkRange := sbl.ChunkRanges[CHUNK_TYPE_ADD]
 		if addChunkRange != "" {
 			listsStr += "a:" + addChunkRange + ":"
 		}
-		subChunkRange := ssl.ChunkRanges[CHUNK_TYPE_SUB]
+		subChunkRange := sbl.ChunkRanges[CHUNK_TYPE_SUB]
 		if subChunkRange != "" {
 			listsStr += "s:" + subChunkRange
 		}
 		listsStr += "\n"
 	}
-	redirects, err := ss.request(url, listsStr, true)
+	redirects, err := sb.request(url, listsStr, true)
+	if err != nil {
+		return err, 0
+	}
+	defer redirects.Body.Close()
 	if redirects.StatusCode != 200 {
 		tmp := &bytes.Buffer{}
 		tmp.ReadFrom(redirects.Body)
-		return fmt.Errorf("Unexpected server response code: %d\n%s", redirects.StatusCode, tmp)
+		return fmt.Errorf("Unexpected server response code: %d\n%s", redirects.StatusCode, tmp), redirects.StatusCode
 	}
-	if err != nil {
-		return err
+	if err = sb.processRedirectList(redirects.Body); err != nil {
+		return err, redirects.StatusCode
 	}
-	if err = ss.processRedirectList(redirects.Body); err != nil {
-		return err
-	}
-	return nil
+	return nil, redirects.StatusCode
 }
 
-func (ss *SafeBrowsing) reset() {
-	for _, ssl := range ss.Lists {
-		// recreate the bloom filters
-		//ssl.InsertFilter = bloom.New(BLOOM_FILTER_BITS, BLOOM_FILTER_HASHES)
-		ssl.Lookup = NewTrie()
-		// kill off the chunks
-		ssl.ChunkRanges = map[ChunkType]string{
-			CHUNK_TYPE_ADD: "",
-			CHUNK_TYPE_SUB: "",
-		}
-		// delete any files we have loaded for this map
-		if ssl.FileName != "" {
-			os.Remove(ssl.FileName)
-		}
-	}
-}
+func (sb *SafeBrowsing) processRedirectList(buf io.Reader) error {
+	//	defer debug.FreeOSMemory()
 
-func (ss *SafeBrowsing) processRedirectList(buf io.Reader) error {
 	scanner := bufio.NewScanner(buf)
-	var currentList []string = nil
-	currentDeletes := make(map[ChunkType]map[ChunkNum]bool)
+	//initialize temporary var
+	var currentListName string
+	var RedirectList []string = nil
+	currentDeletes := make(map[ChunkData_ChunkType]map[ChunkNum]bool)
 	currentDeletes[CHUNK_TYPE_ADD] = make(map[ChunkNum]bool)
 	currentDeletes[CHUNK_TYPE_SUB] = make(map[ChunkNum]bool)
-	var currentListName string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		bits := strings.SplitN(line, ":", 2)
 		switch bits[0] {
-		case "r":
-			// we need to reset full!
-			ss.reset()
-			// the docs say to request again, so we do that...
-			return ss.requestRedirectList()
-		case "i":
-			if currentList != nil {
-				// save to DataRedirects
-				ss.Lists[currentListName].DataRedirects = currentList
-				ss.Lists[currentListName].DeleteChunks = currentDeletes
-			}
-			currentList = make([]string, 0)
-			currentListName = bits[1]
-			currentDeletes := make(map[ChunkType][]ChunkNum)
-			currentDeletes[CHUNK_TYPE_ADD] = make([]ChunkNum, 0)
-			currentDeletes[CHUNK_TYPE_SUB] = make([]ChunkNum, 0)
-		case "u":
-			currentList = append(currentList, "http://"+bits[1])
 		case "n":
 			updateDelayStr := bits[1]
 			updateDelay, err := strconv.Atoi(updateDelayStr)
 			if err != nil {
 				return fmt.Errorf("Unable to parse timeout: %s", err)
 			}
-			ss.UpdateDelay = updateDelay
-		case "e":
-			svrError := bits[1]
-			return fmt.Errorf("Error recieved from server: %s", svrError)
+			sb.UpdateDelay = updateDelay
+		case "r":
+			// we need to reset full!
+			sb.reset()
+			// the docs say to request again, so we do that...
+			err, _ := sb.requestRedirectList()
+			return err
+		case "i":
+			if RedirectList != nil {
+				// save to DataRedirects
+				sb.Lists[currentListName].DataRedirects = RedirectList
+				sb.Lists[currentListName].DeleteChunks = currentDeletes
+			}
+			// reinitialize temporary var
+			RedirectList = make([]string, 0)
+			currentDeletes = make(map[ChunkData_ChunkType]map[ChunkNum]bool)
+			currentDeletes[CHUNK_TYPE_ADD] = make(map[ChunkNum]bool, 0)
+			currentDeletes[CHUNK_TYPE_SUB] = make(map[ChunkNum]bool, 0)
+			currentListName = bits[1]
+		case "u":
+			RedirectList = append(RedirectList, "https://"+bits[1])
 		case "ad":
 			addDeletes, err := parseChunkRange(bits[1])
 			if err != nil {
 				return fmt.Errorf("Error parsing delete add chunks range: %s", err)
 			}
-			ss.Lists[currentListName].DeleteChunks[CHUNK_TYPE_ADD] = addDeletes
+			currentDeletes[CHUNK_TYPE_ADD] = addDeletes
 		case "sd":
 			subDeletes, err := parseChunkRange(bits[1])
 			if err != nil {
 				return fmt.Errorf("Error parsing delete sub chunks range: %s", err)
 			}
-			ss.Lists[currentListName].DeleteChunks[CHUNK_TYPE_SUB] = subDeletes
+			currentDeletes[CHUNK_TYPE_SUB] = subDeletes
+		default:
+			continue
 		}
+		//		debug.FreeOSMemory()
 	}
+
 	// add the final list
-	ss.Lists[currentListName].DataRedirects = currentList
-	ss.Lists[currentListName].DeleteChunks = currentDeletes
-	if err := scanner.Err(); err != nil {
+	sb.Lists[currentListName].DataRedirects = RedirectList
+	sb.Lists[currentListName].DeleteChunks = currentDeletes
+	if err := scanner.Err(); err != nil && err != io.EOF {
 		return fmt.Errorf("Unable to parse list response: %s", err)
 	}
 	return nil
 }
 
-func getHash(input string) (hash LookupHash) {
-	hasher := sha256.New()
-	hasher.Write([]byte(input))
-	return LookupHash(hasher.Sum(nil))
-}
+func (sb *SafeBrowsing) reset() {
 
-func insertionSortHashLength(a []LookupHash) {
-	for i := 1; i < len(a); i++ {
-		value := a[i]
-		j := i - 1
-		for j >= 0 && len(a[j]) < len(value) {
-			a[j+1] = a[j]
-			j = j - 1
+	for _, sbl := range sb.Lists {
+		sbl.Lookup = NewTrie()
+		sbl.FullHashes = NewTrie()
+		sbl.FullHashRequested = NewTrie()
+		sbl.DataRedirects = make([]string, 0)
+		sbl.DeleteChunks = make(map[ChunkData_ChunkType]map[ChunkNum]bool)
+		sbl.DeleteChunks[CHUNK_TYPE_ADD] = make(map[ChunkNum]bool, 0)
+		sbl.DeleteChunks[CHUNK_TYPE_SUB] = make(map[ChunkNum]bool, 0)
+		// kill off the chunks
+		sbl.ChunkRanges = map[ChunkData_ChunkType]string{
+			CHUNK_TYPE_ADD: "",
+			CHUNK_TYPE_SUB: "",
 		}
-		a[j+1] = value
-	}
-}
-
-// Check to see if a URL is marked as unsafe by Google.
-// Returns what list the URL is on, or an empty string if the URL is unlisted.
-// Note that this query may perform a blocking HTTP request; if speed is important
-// it may be preferable to use MightBeListed which will return quickly.  If showing
-// a warning to the user however, this call must be used.
-func (ss *SafeBrowsing) IsListed(url string) (list string, err error) {
-	list, _, err = ss.queryUrl(url, true)
-	return list, err
-}
-
-// Check to see if a URL is likely marked as unsafe by Google.
-// Returns what list the URL may be listed on, or an empty string if the URL is not listed.
-// Note that this query does not perform a "request for full hashes" and MUST NOT be
-// used to show a warning to the user.
-func (ss *SafeBrowsing) MightBeListed(url string) (list string, fullHashMatch bool, err error) {
-	return ss.queryUrl(url, false)
-}
-
-// Checks to ensure we have had a successful update in the last 45 mins
-func (ss *SafeBrowsing) IsUpToDate() bool {
-	return !OfflineMode && time.Since(ss.LastUpdated) < (time.Duration(45)*time.Minute)
-}
-
-// Here is where we actually look up the hashes against our map.
-func (ss *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, fullHashMatch bool, err error) {
-
-	if matchFullHash && !ss.IsUpToDate() {
-		// we haven't had a sucessful update in the last 45 mins!  abort!
-		return "", false, fmt.Errorf(
-			"Unable to check listing, list hasn't been updated for 45 mins")
-	}
-
-	// first Canonicalize
-	url = Canonicalize(url)
-
-	urls := GenerateTestCandidates(url)
-	ss.Logger.Debug("Checking %d iterations of url", len(urls))
-	for _, url := range urls {
-		for list, ssl := range ss.Lists {
-
-			hostKey := ExtractHostKey(url)
-			hostKeyHash := HostHash(getHash(hostKey)[:4])
-			ss.Logger.Debug("Host hash: %s", hex.EncodeToString([]byte(hostKeyHash)))
-
-			ssl.updateLock.RLock()
-			// hash it up
-			ss.Logger.Debug("Hashing %s", url)
-			urlHash := getHash(url)
-
-			prefix := urlHash[0:ssl.HashPrefixLen]
-			lookupHash := LookupHash(string(hostKeyHash) + string(prefix))
-			fullLookupHash := LookupHash(string(hostKeyHash) + string(urlHash))
-
-			ss.Logger.Debug("testing hash: %s + %s = %s, full = %s",
-				hex.EncodeToString([]byte(hostKeyHash)),
-				hex.EncodeToString([]byte(prefix)),
-				hex.EncodeToString([]byte(lookupHash)),
-				hex.EncodeToString([]byte(fullLookupHash)))
-
-			// look up full hash matches
-			if ssl.FullHashes.Get(string(fullLookupHash)) {
-				ssl.updateLock.RUnlock()
-				return list, true, nil
-			}
-
-			// now see if there is a match in our prefix trie
-			keysToLookupMap := make(map[LookupHash]bool)
-			if ssl.Lookup.Get(string(lookupHash)) {
-				if !matchFullHash || OfflineMode {
-					ss.Logger.Debug("Partial hash hit")
-					ssl.updateLock.RUnlock()
-					return list, false, nil
-				}
-				// have we have already asked for full hashes for this prefix?
-				if ssl.FullHashRequested.Get(string(lookupHash)) {
-					ss.Logger.Debug("Full length hash miss")
-					ssl.updateLock.RUnlock()
-					return "", false, nil
-				}
-
-				// we matched a prefix and need to request a full hash
-				ss.Logger.Debug("Need to request full length hashes for %s",
-					hex.EncodeToString([]byte(prefix)))
-
-				keysToLookupMap[prefix] = true
-			}
-			if len(keysToLookupMap) > 0 {
-				ssl.updateLock.RUnlock()
-				err := ss.requestFullHashes(list, hostKeyHash, keysToLookupMap)
-				if err != nil {
-					return "", false, err
-				}
-				ssl.updateLock.RLock()
-
-				// re-check for full hash hit.
-				if ssl.FullHashes.Get(string(fullLookupHash)) {
-					ssl.updateLock.RUnlock()
-					return list, true, nil
-				}
-			}
-
-			ssl.updateLock.RUnlock()
+		// delete any files we have loaded for this map
+		if sbl.FileName != "" {
+			os.Remove(sbl.FileName)
 		}
+		//		debug.FreeOSMemory()
 	}
-
-	return "", false, nil
 }
 
-// request full hases for a set of lookup prefixes.
-func (ss *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes map[LookupHash]bool) error {
-	if len(prefixes) == 0 {
-		return nil
-	}
-	query := "%d:%d\n%s"
-	buf := bytes.Buffer{}
-	firstPrefixLen := 0
-	for prefix, _ := range prefixes {
-		_, err := buf.Write([]byte(prefix))
-		if err != nil {
-			return err
-		}
-		if firstPrefixLen == 0 {
-			firstPrefixLen = len(prefix)
-		}
-		if firstPrefixLen != len(prefix) {
-			return fmt.Errorf("Attempted to used variable length hashes in lookup!")
-		}
-	}
-	body := fmt.Sprintf(query,
-		firstPrefixLen,
-		len(buf.String()),
-		buf.String())
-	url := fmt.Sprintf(
-		"http://safebrowsing.clients.google.com/safebrowsing/gethash?"+
-			"client=%s&apikey=%s&appver=%s&pver=2.2",
-		ss.Client, ss.Key, ss.AppVersion)
-	response, err := ss.request(url, body, true)
-	if err != nil {
-		return err // non-server error with HTTP
-	}
+func (sb *SafeBrowsing) reloadLoop() {
 
-	// mark these prefxes as having been requested
-	ss.Lists[list].updateLock.Lock()
-	for prefix, _ := range prefixes {
-		ss.Lists[list].FullHashRequested.Set(string(host) + string(prefix))
-	}
-	ss.Lists[list].updateLock.Unlock()
-
-	if response.StatusCode >= 400 {
-		// start new thread for back-off mode behaviour
-		go ss.doFullHashBackOffRequest(list, host, url, body)
-		return fmt.Errorf("Unable to lookup full hash, will retry in background, server returned %d",
-			response.StatusCode)
-	}
-	return ss.processFullHashes(list, response.Body, host)
-}
-
-// Continue the attempt to request for full hashes in the background, observing the required backoff behaviour.
-func (ss *SafeBrowsing) doFullHashBackOffRequest(list string, host HostHash, url string, body string) {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randomFloat := r.Float64()
-	var response *http.Response
-	response.StatusCode = 400
-	var err error
-	for x := 0; response.StatusCode >= 400; x++ {
-		// first we wait 1 min, than some time between 30-60 mins
-		// doubling until we stop at 480 mins or succeed
-		mins := (30 * (randomFloat + 1) * float64(x)) + 1
-		if mins > 480 {
-			ss.Logger.Warn(
-				"Back-off for full hash %s exceeded 8 hours, it ain't going to happen, giving up: %s",
-				body,
-				response,
-			)
-			return
-		}
-		ss.Logger.Warn(
-			"Update failed, in full hash back-off mode (waiting %d mins)",
-			mins,
-		)
-		time.Sleep(time.Duration(mins) * time.Minute)
-		response, err = ss.request(url, body, true)
-		if err != nil {
-			ss.Logger.Error(
-				"Unable to request full hashes from response in back-off mode: %s",
+	for {
+		// wait the update delay
+		duration := time.Duration(sb.UpdateDelay) * time.Second
+		sb.Logger.Info("Next update in %d seconds", sb.UpdateDelay)
+		time.Sleep(duration)
+		err, status := sb.update()
+		for x := 0; status == 503; x++ {
+			// first we wait 1 min, than some time between 30-60 mins
+			// doubling until we stop at 480 mins or succeed
+			mins := (30 * (randomFloat + 1) * float64(x)) + 1
+			if mins > 480 {
+				mins = 480
+			}
+			sb.Logger.Warn(
+				"Update failed, in back-off mode (waiting %d mins): %s",
+				mins,
 				err,
 			)
+			time.Sleep(time.Duration(mins) * time.Minute)
+			err, status = sb.update()
 		}
+		//		debug.FreeOSMemory()
 	}
-	err = ss.processFullHashes(list, response.Body, host)
-	if err != nil {
-		ss.Logger.Error(
-			"Unable process full hashes from response in back-off mode: %s; trying again.",
-			err,
-		)
-		ss.doFullHashBackOffRequest(list, host, url, body)
-	}
-}
-
-// Process the retrieved full hashes, saving them to disk
-func (ss *SafeBrowsing) processFullHashes(list string, f io.Reader, host HostHash) error {
-	responseBuf := bufio.NewReader(f)
-	chunks := make([]*Chunk, 0)
-	var err error = nil
-	var chunk *Chunk = nil
-	for err == nil {
-		chunk, err = ReadFullHashChunk(responseBuf, host)
-		if err == nil {
-			chunks = append(chunks, chunk)
-		}
-	}
-	if err != io.EOF {
-		return err
-	}
-	err = ss.Lists[list].load(chunks)
-	if err != nil {
-		return err
-	}
-	debug.FreeOSMemory()
-	return nil
 }

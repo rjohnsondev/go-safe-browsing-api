@@ -1,5 +1,6 @@
 /*
 Copyright (c) 2013, Richard Johnson
+Copyright (c) 2014, Kilian Gilonne
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -83,7 +84,7 @@ func canonicalizeHostname(fullurl string) (canonicalized string) {
 		if ip != nil {
 			canonicalized = ip.String()
 		}
-		ipInt, err := strconv.Atoi(canonicalized)
+		ipInt, err := strconv.ParseUint(canonicalized, 10, 0)
 		if err == nil {
 			// we were an int!
 			canonicalized = fmt.Sprintf("%d.%d.%d.%d",

@@ -1,5 +1,6 @@
 /*
 Copyright (c) 2013, Richard Johnson
+Copyright (c) 2014, Kilian Gilonne
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -31,11 +32,10 @@ import (
 	"time"
 	//"bytes"
 	"bytes"
-	//"code.google.com/p/goconf/conf"
-	"encoding/hex"
+	//"encoding/hex"
+	"crypto/sha256"
 	"io/ioutil"
 	"net/http"
-	//"github.com/willf/bloom"
 	//"strings"
 	"sync"
 )
@@ -103,61 +103,43 @@ sd:2-6`
 		},
 		Logger: new(DefaultLogger),
 	}
-	err := ss.requestRedirectList()
+	err, _ := ss.requestRedirectList()
 	if err != nil {
 		t.Error(err)
 	}
 	if len(ss.Lists["googpub-phish-shavar"].DataRedirects) != 2 {
 		t.Error("Unable to parse redirect list")
 	}
-	if ss.Lists["googpub-phish-shavar"].DataRedirects[0] != "http://cache.google.com/first_redirect_example" {
+	if ss.Lists["googpub-phish-shavar"].DataRedirects[0] != "https://cache.google.com/first_redirect_example" {
 		t.Error("Unable to parse redirect list")
 	}
-	if ss.Lists["acme-white-shavar"].DataRedirects[0] != "http://cache.google.com/second_redirect_example" {
+	if ss.Lists["acme-white-shavar"].DataRedirects[0] != "https://cache.google.com/second_redirect_example" {
 		t.Error("Unable to parse redirect list")
 	}
-	if len(ss.Lists["googpub-phish-shavar"].DeleteChunks[CHUNK_TYPE_SUB]) == 2 {
+	if len(ss.Lists["googpub-phish-shavar"].DeleteChunks[CHUNK_TYPE_SUB]) != 2 {
 		t.Error("Delete chunks not processed")
 	}
-	if len(ss.Lists["acme-white-shavar"].DeleteChunks[CHUNK_TYPE_SUB]) == 5 {
+	if len(ss.Lists["acme-white-shavar"].DeleteChunks[CHUNK_TYPE_ADD]) != 5 {
 		t.Error("Delete chunks not processed")
 	}
-	if len(ss.Lists["acme-white-shavar"].DeleteChunks[CHUNK_TYPE_ADD]) == 5 {
+	if len(ss.Lists["acme-white-shavar"].DeleteChunks[CHUNK_TYPE_SUB]) != 5 {
 		t.Error("Delete chunks not processed")
 	}
 	if ss.UpdateDelay != 1200 {
 		t.Error("Update delay not parsed")
 	}
-
-	ss = &SafeBrowsing{
-		request: NewMockRequest("e:pleaserekey"),
-		Logger:  new(DefaultLogger),
-	}
-	err = ss.requestRedirectList()
-	if err.Error() != "Error recieved from server: pleaserekey" {
-		t.Error("Error not caught")
-	}
-
 }
 
 func TestUrlListed(t *testing.T) {
 
-	hostHashBytes, err := hex.DecodeString("340eaa16")
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	hostHash := HostHash(hostHashBytes)
-
-	chunkData := append(
-		[]byte("googpub-phish-shavar:1:32\n"),
-		[]byte{
-			0x34, 0x0e, 0xaa, 0x16, 0xce, 0xaf, 0x24, 0x6f, 0xa4, 0xaf, 0x3f, 0x00,
-			0xe3, 0x31, 0x09, 0xd1, 0x1f, 0xf5, 0xdd, 0x39, 0x1e, 0x9f, 0x4b, 0xc8,
-			0x17, 0xb7, 0x6a, 0x73, 0xfd, 0x24, 0x5d, 0xcb,
-		}...,
-	)
-
+	url := "http://test.com/"
+	url = Canonicalize(url)
+	urls := GenerateTestCandidates(url)
+	url = urls[0]
+	hasher := sha256.New()
+	hasher.Write([]byte(url))
+	hash := hasher.Sum(nil)
+	chunkData := []byte("600\n" + "googpub-phish-shavar:32:1\n" + string(hash) + "\n")
 	tmpDirName, err := ioutil.TempDir("", "safebrowsing")
 	if err != nil {
 		t.Error(err)
@@ -171,11 +153,10 @@ func TestUrlListed(t *testing.T) {
 			"googpub-phish-shavar": &SafeBrowsingList{
 				Name:              "googpub-phish-shavar",
 				FileName:          tmpDirName + "/googpub-phish-shavar.dat",
-				HashPrefixLen:     4,
 				Lookup:            NewTrie(),
 				FullHashRequested: NewTrie(),
 				FullHashes:        NewTrie(),
-				DeleteChunks: map[ChunkType]map[ChunkNum]bool{
+				DeleteChunks: map[ChunkData_ChunkType]map[ChunkNum]bool{
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
 				},
@@ -183,12 +164,12 @@ func TestUrlListed(t *testing.T) {
 				updateLock: new(sync.RWMutex),
 			},
 		},
+		Cache:   make(map[HostHash]*FullHashCache),
 		Logger:  new(DefaultLogger),
 		request: NewMockRequest(string(chunkData)),
 	}
-	ss.Lists["googpub-phish-shavar"].Lookup.Set(string(hostHash) + string(hostHash))
+	ss.Lists["googpub-phish-shavar"].Lookup.Set(string(hash[:PREFIX_4B_SZ]))
 
-	url := "http://test.com/"
 	result, _, err := ss.MightBeListed(url)
 	if err != nil {
 		t.Error(err)
@@ -199,7 +180,6 @@ func TestUrlListed(t *testing.T) {
 		return
 	}
 
-	url = "http://test.com/"
 	result, err = ss.IsListed(url)
 	if err != nil {
 		t.Error(err)
