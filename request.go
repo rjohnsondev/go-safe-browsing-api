@@ -33,10 +33,12 @@ import (
 
 func request(url string, data string, isPost bool) (response *http.Response, err error) {
 	buf := bytes.NewBufferString(data)
+	client := &http.Client{Transport: Transport}
+
 	if isPost {
-		response, err = http.Post(url, "text/plain", buf)
+		response, err = client.Post(url, "text/plain", buf)
 	} else {
-		response, err = http.Get(url)
+		response, err = client.Get(url)
 	}
 	if err != nil {
 		_, filename, line_no, _ := runtime.Caller(0)

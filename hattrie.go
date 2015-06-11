@@ -20,37 +20,35 @@ hattrie_t* start() {
 	return trie;
 }
 
-void set(hattrie_t* h, char* key) {
+void set(hattrie_t* h, char* key, size_t len) {
 	value_t* val;
-	val = hattrie_get(h, key, strlen(key));
+	val = hattrie_get(h, key, len);
 	*val = 1;
 }
 
-int get(hattrie_t* h, char* key) {
+int get(hattrie_t* h, char* key, size_t len) {
 	value_t* val;
-	val = hattrie_tryget(h, key, strlen(key));
+	val = hattrie_tryget(h, key, len);
 	if (val != 0) {
 		return *val;
 	}
 	return 0;
 }
 
-void delete(hattrie_t* h, char* key) {
+void delete(hattrie_t* h, char* key, size_t len) {
 	value_t* val;
-	val = hattrie_tryget(h, key, strlen(key));
+	val = hattrie_tryget(h, key, len);
 	if (val != 0) {
 		*val = 0;
 	}
 }
 
-char* hattrie_iter_key_string(hattrie_iter_t* i) {
-	size_t len;
+char* hattrie_iter_key_string(hattrie_iter_t* i, size_t* len) {
 	const char* in_key;
 	char* out_key;
-	in_key = hattrie_iter_key(i, &len);
-	out_key = malloc((len + 1) * sizeof(char));
-	memcpy(out_key, in_key, len);
-	out_key[len] = 0;
+	in_key = hattrie_iter_key(i, len);
+	out_key = malloc((*len) * sizeof(char));
+	memcpy(out_key, in_key, *len);
 	return out_key;
 }
 
@@ -82,19 +80,19 @@ func NewTrie() *HatTrie {
 func (h *HatTrie) Delete(key string) {
 	ckey := C.CString(key)
 	defer C.free(unsafe.Pointer(ckey))
-	C.delete(h.trie, ckey)
+	C.delete(h.trie, ckey, C.size_t(len(key)))
 }
 
 func (h *HatTrie) Set(key string) {
 	ckey := C.CString(key)
 	defer C.free(unsafe.Pointer(ckey))
-	C.set(h.trie, ckey)
+	C.set(h.trie, ckey, C.size_t(len(key)))
 }
 
 func (h *HatTrie) Get(key string) bool {
 	ckey := C.CString(key)
 	defer C.free(unsafe.Pointer(ckey))
-	val := C.get(h.trie, ckey)
+	val := C.get(h.trie, ckey, C.size_t(len(key)))
 	return val == 1
 }
 
@@ -119,9 +117,10 @@ func (i *HatTrieIterator) Next() string {
 	if C.hattrie_iter_finished(i.iterator) {
 		return ""
 	}
-	ckey := C.hattrie_iter_key_string(i.iterator)
+	keylen := C.size_t(0)
+	ckey := C.hattrie_iter_key_string(i.iterator, &keylen)
 	defer C.free(unsafe.Pointer(ckey))
-	key := C.GoString(ckey)
+	key := C.GoStringN(ckey, C.int(keylen))
 	C.hattrie_iter_next(i.iterator)
 	return key
 }
