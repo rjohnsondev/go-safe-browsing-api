@@ -28,6 +28,7 @@ package safebrowsing
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -72,13 +73,15 @@ func (sb *SafeBrowsing) MightBeListed(url string) (list string, fullHashMatch bo
 	return sb.queryUrl(url, false)
 }
 
+var ErrOutOfDateHashes = errors.New("Unable to check listing, list hasn't been updated for 45 mins")
+
 // Here is where we actually look up the hashes against our map.
 func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, fullHashMatch bool, err error) {
 	//	defer debug.FreeOSMemory()
 
 	if matchFullHash && !sb.IsUpToDate() {
 		// we haven't had a sucessful update in the last 45 mins!  abort!
-		return "", false, fmt.Errorf("Unable to check listing, list hasn't been updated for 45 mins")
+		return "", false, ErrOutOfDateHashes
 	}
 
 	// first Canonicalize
