@@ -144,7 +144,7 @@ func (sb *SafeBrowsing) requestSafeBrowsingLists() (err error) {
 
 	url := fmt.Sprintf(
 		"https://safebrowsing.google.com/safebrowsing/list?"+
-			"client=%s&key=%s&appver=%s&pver=%s",
+			"client=%s&apikey=%s&appver=%s&pver=%s",
 		sb.Client, sb.Key, sb.AppVersion, sb.ProtocolVersion)
 
 	listresp, err := sb.request(url, "", true)
@@ -212,7 +212,7 @@ func (sb *SafeBrowsing) requestRedirectList() (err error, status int) {
 
 	url := fmt.Sprintf(
 		"https://safebrowsing.google.com/safebrowsing/downloads?"+
-			"client=%s&key=%s&appver=%s&pver=%s",
+			"client=%s&apikey=%s&appver=%s&pver=%s",
 		sb.Client, sb.Key, sb.AppVersion, sb.ProtocolVersion)
 
 	listsStr := ""
