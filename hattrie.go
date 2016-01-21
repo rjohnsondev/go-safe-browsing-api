@@ -57,11 +57,13 @@ import "C"
 
 import (
 	"runtime"
+	"sync"
 	"unsafe"
 )
 
 type HatTrie struct {
 	trie *C.hattrie_t
+	l    sync.RWMutex // we name it because we don't want to expose it
 }
 
 func finalizeHatTrie(c *HatTrie) {
@@ -78,18 +80,27 @@ func NewTrie() *HatTrie {
 }
 
 func (h *HatTrie) Delete(key string) {
+	h.l.Lock()
+	defer h.l.Unlock()
+
 	ckey := C.CString(key)
 	defer C.free(unsafe.Pointer(ckey))
 	C.delete(h.trie, ckey, C.size_t(len(key)))
 }
 
 func (h *HatTrie) Set(key string) {
+	h.l.Lock()
+	defer h.l.Unlock()
+
 	ckey := C.CString(key)
 	defer C.free(unsafe.Pointer(ckey))
 	C.set(h.trie, ckey, C.size_t(len(key)))
 }
 
 func (h *HatTrie) Get(key string) bool {
+	h.l.RLock()
+	defer h.l.RUnlock()
+
 	ckey := C.CString(key)
 	defer C.free(unsafe.Pointer(ckey))
 	val := C.get(h.trie, ckey, C.size_t(len(key)))

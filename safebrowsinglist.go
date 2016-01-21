@@ -51,12 +51,9 @@ type SafeBrowsingList struct {
 	FullHashes        *HatTrie
 
 	Logger logger
-	// fsLock is wrapped around the filesystem modifications and a call to
-	// updateLock to prevent more than one set of fs modifications happening at
-	// once.
+	// fsLock is wrapped around the filesystem modifications
+	// to prevent more than one set of fs modifications happening at once.
 	fsLock *sync.Mutex
-	// updateLock prevents more than one pointer swap
-	updateLock *sync.RWMutex
 }
 
 func newSafeBrowsingList(name string, filename string) (sbl *SafeBrowsingList) {
@@ -70,7 +67,6 @@ func newSafeBrowsingList(name string, filename string) (sbl *SafeBrowsingList) {
 		DeleteChunks:      make(map[ChunkData_ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
 		fsLock:            new(sync.Mutex),
-		updateLock:        new(sync.RWMutex),
 	}
 	sbl.DeleteChunks[CHUNK_TYPE_ADD] = make(map[ChunkNum]bool)
 	sbl.DeleteChunks[CHUNK_TYPE_SUB] = make(map[ChunkNum]bool)
@@ -284,8 +280,6 @@ func (sbl *SafeBrowsingList) updateLookupMap(chunk *ChunkData) {
 
 	for i := 0; (i + hashlen) <= hasheslen; i += hashlen {
 		hash := chunk.Hashes[i:(i + hashlen)]
-		// We may have to make this more fine grained
-		sbl.updateLock.Lock()
 		switch hashlen {
 		case PREFIX_4B_SZ:
 			// we are a hash-prefix
@@ -317,7 +311,5 @@ func (sbl *SafeBrowsingList) updateLookupMap(chunk *ChunkData) {
 				sbl.FullHashes.Delete(lookupHash)
 			}
 		}
-		sbl.updateLock.Unlock()
-
 	}
 }

@@ -161,7 +161,7 @@ func TestUrlListed(t *testing.T) {
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
 				},
 				Logger:     new(DefaultLogger),
-				updateLock: new(sync.RWMutex),
+				fsLock:     new(sync.Mutex),
 			},
 		},
 		Cache:   make(map[HostHash]*FullHashCache),
