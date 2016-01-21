@@ -31,11 +31,11 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	//	"runtime/debug"
 	"sync"
+	//	"runtime/debug"
 )
 
-//import "encoding/hex"
+import "encoding/hex"
 
 type SafeBrowsingList struct {
 	Name     string
@@ -49,6 +49,11 @@ type SafeBrowsingList struct {
 	Lookup            *HatTrie
 	FullHashRequested *HatTrie
 	FullHashes        *HatTrie
+
+	// Temporary lookup tables (used during update only).
+	tmpLookup            *HatTrie
+	tmpFullHashes        *HatTrie
+	tmpFullHashRequested *HatTrie
 
 	Logger logger
 	// fsLock is wrapped around the filesystem modifications and a call to
@@ -164,6 +169,15 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 	deletedChunkCount := 0
 	addedChunkCount := len(newChunks)
 
+	// Create new temprary map for the update.
+	sbl.tmpLookup = NewTrie()
+
+	// Just clear all Full Hashes as the GSBv3 specification requests us
+	// to delete all FullHashes on update
+	// https://developers.google.com/safe-browsing/developers_guide_v3#Changes3.0
+	sbl.tmpFullHashes = NewTrie()
+	sbl.tmpFullHashRequested = NewTrie()
+
 	// load existing chunk
 	if dec != nil {
 		for {
@@ -241,6 +255,14 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 		}
 	}
 
+	// Replace current maps with the newly created ones.
+	sbl.Logger.Info("Replacing FullHashes and Lookup lists")
+	sbl.Lookup = sbl.tmpLookup
+	// reset the FullHashes cache and reset the pending list
+	sbl.FullHashes = sbl.tmpFullHashes
+	sbl.FullHashRequested = sbl.tmpFullHashRequested
+	sbl.Logger.Info("Replaced FullHashes and Lookup lists")
+
 	// now close off our files, discard the old and keep the new
 	if f != nil {
 		err = os.Remove(sbl.FileName)
@@ -292,29 +314,24 @@ func (sbl *SafeBrowsingList) updateLookupMap(chunk *ChunkData) {
 			prefix := string(hash)
 			switch chunk.GetChunkType() {
 			case CHUNK_TYPE_ADD:
-				sbl.Lookup.Set(prefix)
+				sbl.tmpLookup.Set(prefix)
 			case CHUNK_TYPE_SUB:
-				sbl.Lookup.Delete(prefix)
-				i := sbl.FullHashes.Iterator()
-				for key := i.Next(); key != ""; key = i.Next() {
-					keyPrefix := key[0:len(prefix)]
-					if keyPrefix == prefix {
-						sbl.FullHashes.Delete(key)
-					}
-				}
+				sbl.tmpLookup.Delete(prefix)
 			}
 		case PREFIX_32B_SZ:
 			// we are a full-length hash
 			lookupHash := string(hash)
 			switch chunk.GetChunkType() {
 			case CHUNK_TYPE_ADD:
-				//                              sbl.Logger.Debug("Adding full length hash: %s",
-				//                                      hex.EncodeToString([]byte(lookupHash)))
-				sbl.FullHashes.Set(lookupHash)
+				sbl.Logger.Debug("Adding full length hash: %s", hex.EncodeToString([]byte(lookupHash)))
+				sbl.tmpFullHashes.Set(lookupHash)
 			case CHUNK_TYPE_SUB:
-				//                              sbl.Logger.Debug("sub full length hash: %s",
-				//                                      hex.EncodeToString([]byte(lookupHash)))
-				sbl.FullHashes.Delete(lookupHash)
+				//sbl.Logger.Debug("sub full length hash: %s", hex.EncodeToString([]byte(lookupHash)))
+				// delete will do nothing if lookupHash does not exist
+				sbl.tmpFullHashes.Delete(lookupHash)
+				// Mark that we have already requested this fullhash so that we don't keep asking
+				// for this hash in the feature as this chunk is a SUB chunk which removes false positives
+				sbl.tmpFullHashRequested.Set(lookupHash)
 			}
 		}
 		sbl.updateLock.Unlock()
