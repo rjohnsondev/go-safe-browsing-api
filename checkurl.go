@@ -270,6 +270,7 @@ func (sb *SafeBrowsing) processFullHashes(data string) error {
 		} else {
 			chunk_sz = 2
 		}
+		err = sb.readFullHashChunk(split[i+1], splitsplit[0], cacheLifeTime)
 	}
 	return err
 }
@@ -290,7 +291,9 @@ func (sb *SafeBrowsing) readFullHashChunk(hashes string, list string, cacheLifeT
 		} else if sb.Lists[list] == nil {
 			return fmt.Errorf("Google safe browsing list (%s) have not been initialized", list)
 		}
+		sb.Lists[list].updateLock.Lock()
 		sb.Lists[list].FullHashes.Set(hash)
+		sb.Lists[list].updateLock.Unlock()
 		sb.Lists[list].Cache[FullHash(hash)] = newFullHashCache(time.Now(), cacheLifeTime)
 	}
 	return nil
