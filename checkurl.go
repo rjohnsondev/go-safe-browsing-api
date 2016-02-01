@@ -28,6 +28,7 @@ package safebrowsing
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -72,13 +73,15 @@ func (sb *SafeBrowsing) MightBeListed(url string) (list string, fullHashMatch bo
 	return sb.queryUrl(url, false)
 }
 
+var ErrOutOfDateHashes = errors.New("Unable to check listing, list hasn't been updated for 45 mins")
+
 // Here is where we actually look up the hashes against our map.
 func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, fullHashMatch bool, err error) {
 	//	defer debug.FreeOSMemory()
 
 	if matchFullHash && !sb.IsUpToDate() {
 		// we haven't had a sucessful update in the last 45 mins!  abort!
-		return "", false, fmt.Errorf("Unable to check listing, list hasn't been updated for 45 mins")
+		return "", false, ErrOutOfDateHashes
 	}
 
 	// first Canonicalize
@@ -87,74 +90,63 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 	urls := GenerateTestCandidates(url)
 	//      sb.Logger.Debug("Checking %d iterations of url", len(urls))
 	for list, sbl := range sb.Lists {
+
+		// create the map for all prefixes we need to do the full hash lookup
+		keysToLookupMap := make(map[LookupHash]bool)
+
 		for _, url := range urls {
 
-			hostKey := ExtractHostKey(url)
-			hostKeyHash := HostHash(getHash(hostKey)[:4])
-			//                      sb.Logger.Debug("Host hash: %s", hex.EncodeToString([]byte(hostKeyHash)))
-			sbl.updateLock.RLock()
-			// hash it up
-			//                      sb.Logger.Debug("Hashing %s", url)
 			urlHash := getHash(url)
 
 			prefix := urlHash[:PREFIX_4B_SZ]
 			lookupHash := string(prefix)
 			fullLookupHash := string(urlHash)
 
-			//                        sb.Logger.Debug("testing hash: %s, full = %s",
-			//                                hex.EncodeToString([]byte(lookupHash)),
-			//                                hex.EncodeToString([]byte(fullLookupHash)))
-
-			fhc, ok := sb.Cache[hostKeyHash]
+			fhc, ok := sbl.Cache[FullHash(fullLookupHash)]
 			if ok && !fhc.checkValidity() {
-				delete(sb.Cache, hostKeyHash)
-				//                sbl.Logger.Debug("Delete full length hash: %s",
-				//					hex.EncodeToString([]byte(fullLookupHash)))
+				delete(sbl.Cache, FullHash(fullLookupHash))
+				//sbl.Logger.Debug("Delete full length hash: %s",fullLookupHash)
 				sbl.FullHashRequested.Delete(lookupHash)
 				sbl.FullHashes.Delete(fullLookupHash)
 			}
+
 			// look up full hash matches
 			if sbl.FullHashes.Get(fullLookupHash) {
-				sbl.updateLock.RUnlock()
 				return list, true, nil
 			}
 
 			// now see if there is a match in our prefix trie
-			keysToLookupMap := make(map[LookupHash]bool)
 			if sbl.Lookup.Get(lookupHash) {
 				if !matchFullHash || OfflineMode {
 					//					sb.Logger.Debug("Partial hash hit")
-					sbl.updateLock.RUnlock()
 					return list, false, nil
 				}
 				// have we have already asked for full hashes for this prefix?
 				if sbl.FullHashRequested.Get(string(lookupHash)) {
 					//                                        sb.Logger.Debug("Full length hash miss")
-					sbl.updateLock.RUnlock()
 					continue
 				}
 
 				// we matched a prefix and need to request a full hash
-				//                                sb.Logger.Debug("Need to request full length hashes for %s",
-				//                                        hex.EncodeToString([]byte(prefix)))
-
 				keysToLookupMap[prefix] = true
 			}
+		}
 
-			sbl.updateLock.RUnlock()
-			if len(keysToLookupMap) > 0 {
-				err := sb.requestFullHashes(list, hostKeyHash, keysToLookupMap)
-				if err != nil {
-					return "", false, err
-				}
-				sbl.updateLock.RLock()
+		// Check if we need to do a fullHashLookup
+		if len(keysToLookupMap) > 0 {
+			err := sb.requestFullHashes(list, keysToLookupMap)
+			if err != nil {
+				return "", false, err
+			}
 
-				// re-check for full hash hit.
+			// re-check for full hash hit.
+			for _, url := range urls {
+				urlHash := getHash(url)
+				fullLookupHash := string(urlHash)
+
 				if sbl.FullHashes.Get(string(fullLookupHash)) {
-					sbl.updateLock.RUnlock()
 					return list, true, nil
 				}
-				sbl.updateLock.RUnlock()
 			}
 		}
 		//			debug.FreeOSMemory()
@@ -179,7 +171,7 @@ func (fhc *FullHashCache) checkValidity() bool {
 }
 
 // request full hases for a set of lookup prefixes.
-func (sb *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes map[LookupHash]bool) error {
+func (sb *SafeBrowsing) requestFullHashes(list string, prefixes map[LookupHash]bool) error {
 
 	if len(prefixes) == 0 {
 		return nil
@@ -214,16 +206,14 @@ func (sb *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes m
 	defer response.Body.Close()
 
 	// mark these prefxes as having been requested
-	sb.Lists[list].updateLock.Lock()
 	for prefix, _ := range prefixes {
 		sb.Lists[list].FullHashRequested.Set(string(prefix))
 	}
-	sb.Lists[list].updateLock.Unlock()
 
 	if response.StatusCode != 200 {
 		if response.StatusCode == 503 {
 			// Retry in background with a new thread
-			go sb.doFullHashBackOffRequest(host, url, body)
+			go sb.doFullHashBackOffRequest(url, body)
 			return fmt.Errorf("Service temporarily Unavailable")
 		}
 		return fmt.Errorf("Unable to lookup full hash, server returned %d",
@@ -233,11 +223,11 @@ func (sb *SafeBrowsing) requestFullHashes(list string, host HostHash, prefixes m
 	if err != nil {
 		return err
 	}
-	return sb.processFullHashes(string(data), host)
+	return sb.processFullHashes(string(data))
 }
 
 // Process the retrieved full hashes, saving them to disk
-func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) (err error) {
+func (sb *SafeBrowsing) processFullHashes(data string) error {
 	//	defer debug.FreeOSMemory()
 
 	split := strings.Split(data, "\n")
@@ -249,7 +239,6 @@ func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) (err error
 	if err != nil {
 		return err
 	}
-	sb.Cache[host] = newFullHashCache(time.Now(), cacheLifeTime)
 	if split_sz <= 2 {
 		return nil
 	}
@@ -269,13 +258,14 @@ func (sb *SafeBrowsing) processFullHashes(data string, host HostHash) (err error
 		} else {
 			chunk_sz = 2
 		}
-		err = sb.readFullHashChunk(split[i+1], splitsplit[0], host)
+
+		err = sb.readFullHashChunk(split[i+1], splitsplit[0], cacheLifeTime)
 	}
 	return err
 }
 
-func (sb *SafeBrowsing) readFullHashChunk(hashes string, list string, host HostHash) (err error) {
-	if hashes == "" || list == "" || host == "" {
+func (sb *SafeBrowsing) readFullHashChunk(hashes string, list string, cacheLifeTime int) (err error) {
+	if hashes == "" || list == "" {
 		return fmt.Errorf("Imcomplete data to readFullHashChunck()")
 	}
 
@@ -290,15 +280,14 @@ func (sb *SafeBrowsing) readFullHashChunk(hashes string, list string, host HostH
 		} else if sb.Lists[list] == nil {
 			return fmt.Errorf("Google safe browsing list (%s) have not been initialized", list)
 		}
-		sb.Lists[list].updateLock.Lock()
 		sb.Lists[list].FullHashes.Set(hash)
-		sb.Lists[list].updateLock.Unlock()
+		sb.Lists[list].Cache[FullHash(hash)] = newFullHashCache(time.Now(), cacheLifeTime)
 	}
 	return nil
 }
 
 // Continue the attempt to request for full hashes in the background, observing the required backoff behaviour.
-func (sb *SafeBrowsing) doFullHashBackOffRequest(host HostHash, url string, body string) {
+func (sb *SafeBrowsing) doFullHashBackOffRequest(url string, body string) {
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randomFloat := r.Float64()
@@ -339,12 +328,12 @@ func (sb *SafeBrowsing) doFullHashBackOffRequest(host HostHash, url string, body
 			err,
 		)
 	}
-	err = sb.processFullHashes(string(data), host)
+	err = sb.processFullHashes(string(data))
 	if err != nil {
 		sb.Logger.Error(
 			"Unable process full hashes from response in back-off mode: %s; trying again.",
 			err,
 		)
-		sb.doFullHashBackOffRequest(host, url, body)
+		sb.doFullHashBackOffRequest(url, body)
 	}
 }
