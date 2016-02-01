@@ -39,7 +39,7 @@ import (
 	"time"
 )
 
-type HostHash string
+type FullHash string
 type LookupHash string
 
 type SafeBrowsing struct {
@@ -54,7 +54,6 @@ type SafeBrowsing struct {
 	LastUpdated time.Time
 
 	Lists   map[string]*SafeBrowsingList
-	Cache   map[HostHash]*FullHashCache
 	request func(string, string, bool) (*http.Response, error)
 
 	Logger logger
@@ -80,7 +79,6 @@ func NewSafeBrowsing(apiKey string, dataDirectory string) (sb *SafeBrowsing, err
 		ProtocolVersion: ProtocolVersion,
 		DataDir:         dataDirectory,
 		Lists:           make(map[string]*SafeBrowsingList),
-		Cache:           make(map[HostHash]*FullHashCache),
 		request:         request,
 		Logger:          Logger,
 	}
@@ -315,7 +313,12 @@ func (sb *SafeBrowsing) processRedirectList(buf io.Reader) error {
 
 func (sb *SafeBrowsing) reset() {
 
+	// reinitalize all lists
 	for _, sbl := range sb.Lists {
+
+		// clear cache
+		sbl.Cache = make(map[FullHash]*FullHashCache)
+
 		sbl.Lookup = NewTrie()
 		sbl.FullHashes = NewTrie()
 		sbl.FullHashRequested = NewTrie()
@@ -363,6 +366,13 @@ func (sb *SafeBrowsing) reloadLoop() {
 		}
 		//		debug.FreeOSMemory()
 	}
+
+	// Recover from all panicks in reloadLoop, just to log the erros.
+	defer func() {
+		if r := recover(); r != nil {
+			sb.Logger.Error("reloadLoop panicked: %v", r)
+		}
+	}()
 }
 
 const v3KeyPrefix = "AIza"

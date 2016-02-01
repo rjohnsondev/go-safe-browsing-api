@@ -37,7 +37,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	//"strings"
-	"sync"
 )
 
 type MockReadCloser struct {
@@ -156,15 +155,15 @@ func TestUrlListed(t *testing.T) {
 				Lookup:            NewTrie(),
 				FullHashRequested: NewTrie(),
 				FullHashes:        NewTrie(),
+				Cache:             make(map[FullHash]*FullHashCache),
 				DeleteChunks: map[ChunkData_ChunkType]map[ChunkNum]bool{
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
 				},
-				Logger:     new(DefaultLogger),
-				updateLock: new(sync.RWMutex),
+				Logger: new(DefaultLogger),
+				fsLock: new(sync.Mutex),
 			},
 		},
-		Cache:   make(map[HostHash]*FullHashCache),
 		Logger:  new(DefaultLogger),
 		request: NewMockRequest(string(chunkData)),
 	}

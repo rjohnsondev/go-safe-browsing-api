@@ -31,11 +31,11 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	//	"runtime/debug"
 	"sync"
+	//	"runtime/debug"
 )
 
-//import "encoding/hex"
+import "encoding/hex"
 
 type SafeBrowsingList struct {
 	Name     string
@@ -49,14 +49,17 @@ type SafeBrowsingList struct {
 	Lookup            *HatTrie
 	FullHashRequested *HatTrie
 	FullHashes        *HatTrie
+	Cache             map[FullHash]*FullHashCache
+
+	// Temporary lookup tables (used during update only).
+	tmpLookup            *HatTrie
+	tmpFullHashes        *HatTrie
+	tmpFullHashRequested *HatTrie
 
 	Logger logger
-	// fsLock is wrapped around the filesystem modifications and a call to
-	// updateLock to prevent more than one set of fs modifications happening at
-	// once.
+	// fsLock is wrapped around the filesystem modifications
+	// to prevent more than one set of fs modifications happening at once.
 	fsLock *sync.Mutex
-	// updateLock prevents more than one pointer swap
-	updateLock *sync.RWMutex
 }
 
 func newSafeBrowsingList(name string, filename string) (sbl *SafeBrowsingList) {
@@ -67,10 +70,10 @@ func newSafeBrowsingList(name string, filename string) (sbl *SafeBrowsingList) {
 		Lookup:            NewTrie(),
 		FullHashRequested: NewTrie(),
 		FullHashes:        NewTrie(),
+		Cache:             make(map[FullHash]*FullHashCache),
 		DeleteChunks:      make(map[ChunkData_ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
 		fsLock:            new(sync.Mutex),
-		updateLock:        new(sync.RWMutex),
 	}
 	sbl.DeleteChunks[CHUNK_TYPE_ADD] = make(map[ChunkNum]bool)
 	sbl.DeleteChunks[CHUNK_TYPE_SUB] = make(map[ChunkNum]bool)
@@ -159,12 +162,24 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 	subChunkIndexes := make(map[ChunkNum]bool)
 
 	// reset the lookup map
-	newEntryCount := 0
-	subEntryCount := 0
+	addPrefixCount := 0
+	subPrefixCount := 0
+	addFullHashCount := 0
+	subFullHashCount := 0
 	deletedChunkCount := 0
-	addedChunkCount := len(newChunks)
+	addedChunkCount := 0
+
+	// Create new temprary map for the update.
+	sbl.tmpLookup = NewTrie()
+
+	// Just clear all Full Hashes as the GSBv3 specification requests us
+	// to delete all FullHashes on update
+	// https://developers.google.com/safe-browsing/developers_guide_v3#Changes3.0
+	sbl.tmpFullHashes = NewTrie()
+	sbl.tmpFullHashRequested = NewTrie()
 
 	// load existing chunk
+	sbl.Logger.Info("Load existing data from files")
 	if dec != nil {
 		for {
 			chunk := &ChunkData{}
@@ -179,16 +194,16 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 				continue
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_4B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				addPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_32B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				addFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_4B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				subPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_32B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				subFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else {
 				sbl.Logger.Warn("Chunk not decoded properly")
 			}
@@ -200,12 +215,32 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 				}
 			}
 			sbl.updateLookupMap(chunk)
+			addedChunkCount++
 		}
 		if err != io.EOF {
 			return err
 		}
 	}
+	sbl.Logger.Info("Loaded %d existing add chunks and %d sub chunks "+
+		"(%d ADD prefixes, %d SUB prefixes, %d ADD full hashes, %d SUB full hashes), deleted %d chunks, added %d chunks from file.",
+		len(addChunkIndexes),
+		len(subChunkIndexes),
+		addPrefixCount,
+		subPrefixCount,
+		addFullHashCount,
+		subFullHashCount,
+		deletedChunkCount,
+		addedChunkCount,
+	)
+
+	addPrefixCount = 0
+	subPrefixCount = 0
+	addFullHashCount = 0
+	subFullHashCount = 0
+	deletedChunkCount = 0
+	addedChunkCount = len(newChunks)
 	// add on any new chunks
+	sbl.Logger.Info("Add updated chunks")
 	if newChunks != nil {
 		for _, chunk := range newChunks {
 			cast := ChunkNum(chunk.GetChunkNumber())
@@ -215,16 +250,16 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 				continue
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_4B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				addPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_32B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				addFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_4B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				subPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_32B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				subFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else {
 				sbl.Logger.Warn("Unknow chunk type")
 				addedChunkCount--
@@ -240,6 +275,14 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 			sbl.updateLookupMap(chunk)
 		}
 	}
+
+	// Replace current maps with the newly created ones.
+	sbl.Logger.Info("Replacing FullHashes and Lookup lists")
+	sbl.Lookup = sbl.tmpLookup
+	// reset the FullHashes cache and reset the pending list
+	sbl.FullHashes = sbl.tmpFullHashes
+	sbl.FullHashRequested = sbl.tmpFullHashRequested
+	sbl.Logger.Info("Replaced FullHashes and Lookup lists")
 
 	// now close off our files, discard the old and keep the new
 	if f != nil {
@@ -259,14 +302,14 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 	}
 	sbl.DeleteChunks = make(map[ChunkData_ChunkType]map[ChunkNum]bool)
 
-	sbl.Logger.Info("Loaded %d existing add chunks and %d sub chunks "+
-		"(~ %d hashes added, ~ %d hashes removed), deleted %d chunks, added %d new chunks.",
-		len(addChunkIndexes),
-		len(subChunkIndexes),
-		newEntryCount,
-		subEntryCount,
-		deletedChunkCount,
+	sbl.Logger.Info("Update added %d chunks and deleted %d chunks "+
+		"(%d ADD prefixes add, %d SUB prefixes, %d ADD full hashes, %d SUB full hashes)",
 		addedChunkCount,
+		deletedChunkCount,
+		addPrefixCount,
+		subPrefixCount,
+		addFullHashCount,
+		subFullHashCount,
 	)
 	return nil
 }
@@ -284,40 +327,31 @@ func (sbl *SafeBrowsingList) updateLookupMap(chunk *ChunkData) {
 
 	for i := 0; (i + hashlen) <= hasheslen; i += hashlen {
 		hash := chunk.Hashes[i:(i + hashlen)]
-		// We may have to make this more fine grained
-		sbl.updateLock.Lock()
 		switch hashlen {
 		case PREFIX_4B_SZ:
 			// we are a hash-prefix
 			prefix := string(hash)
 			switch chunk.GetChunkType() {
 			case CHUNK_TYPE_ADD:
-				sbl.Lookup.Set(prefix)
+				sbl.tmpLookup.Set(prefix)
 			case CHUNK_TYPE_SUB:
-				sbl.Lookup.Delete(prefix)
-				i := sbl.FullHashes.Iterator()
-				for key := i.Next(); key != ""; key = i.Next() {
-					keyPrefix := key[0:len(prefix)]
-					if keyPrefix == prefix {
-						sbl.FullHashes.Delete(key)
-					}
-				}
+				sbl.tmpLookup.Delete(prefix)
 			}
 		case PREFIX_32B_SZ:
 			// we are a full-length hash
 			lookupHash := string(hash)
 			switch chunk.GetChunkType() {
 			case CHUNK_TYPE_ADD:
-				//                              sbl.Logger.Debug("Adding full length hash: %s",
-				//                                      hex.EncodeToString([]byte(lookupHash)))
-				sbl.FullHashes.Set(lookupHash)
+				sbl.Logger.Debug("Adding full length hash: %s", hex.EncodeToString([]byte(lookupHash)))
+				sbl.tmpFullHashes.Set(lookupHash)
 			case CHUNK_TYPE_SUB:
-				//                              sbl.Logger.Debug("sub full length hash: %s",
-				//                                      hex.EncodeToString([]byte(lookupHash)))
-				sbl.FullHashes.Delete(lookupHash)
+				//sbl.Logger.Debug("sub full length hash: %s", hex.EncodeToString([]byte(lookupHash)))
+				// delete will do nothing if lookupHash does not exist
+				sbl.tmpFullHashes.Delete(lookupHash)
+				// Mark that we have already requested this fullhash so that we don't keep asking
+				// for this hash in the feature as this chunk is a SUB chunk which removes false positives
+				sbl.tmpFullHashRequested.Set(lookupHash)
 			}
 		}
-		sbl.updateLock.Unlock()
-
 	}
 }
