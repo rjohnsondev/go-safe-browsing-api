@@ -162,10 +162,12 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 	subChunkIndexes := make(map[ChunkNum]bool)
 
 	// reset the lookup map
-	newEntryCount := 0
-	subEntryCount := 0
+	addPrefixCount := 0
+	subPrefixCount := 0
+	addFullHashCount := 0
+	subFullHashCount := 0
 	deletedChunkCount := 0
-	addedChunkCount := len(newChunks)
+	addedChunkCount := 0
 
 	// Create new temprary map for the update.
 	sbl.tmpLookup = NewTrie()
@@ -177,6 +179,7 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 	sbl.tmpFullHashRequested = NewTrie()
 
 	// load existing chunk
+	sbl.Logger.Info("Load existing data from files")
 	if dec != nil {
 		for {
 			chunk := &ChunkData{}
@@ -191,16 +194,16 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 				continue
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_4B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				addPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_32B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				addFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_4B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				subPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_32B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				subFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else {
 				sbl.Logger.Warn("Chunk not decoded properly")
 			}
@@ -212,12 +215,32 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 				}
 			}
 			sbl.updateLookupMap(chunk)
+			addedChunkCount++
 		}
 		if err != io.EOF {
 			return err
 		}
 	}
+	sbl.Logger.Info("Loaded %d existing add chunks and %d sub chunks "+
+		"(%d ADD prefixes, %d SUB prefixes, %d ADD full hashes, %d SUB full hashes), deleted %d chunks, added %d chunks from file.",
+		len(addChunkIndexes),
+		len(subChunkIndexes),
+		addPrefixCount,
+		subPrefixCount,
+		addFullHashCount,
+		subFullHashCount,
+		deletedChunkCount,
+		addedChunkCount,
+	)
+
+	addPrefixCount = 0
+	subPrefixCount = 0
+	addFullHashCount = 0
+	subFullHashCount = 0
+	deletedChunkCount = 0
+	addedChunkCount = len(newChunks)
 	// add on any new chunks
+	sbl.Logger.Info("Add updated chunks")
 	if newChunks != nil {
 		for _, chunk := range newChunks {
 			cast := ChunkNum(chunk.GetChunkNumber())
@@ -227,16 +250,16 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 				continue
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_4B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				addPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_ADD && chunk.GetPrefixType() == PREFIX_32B {
 				addChunkIndexes[cast] = true
-				newEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				addFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_4B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_4B_SZ
+				subPrefixCount += len(chunk.Hashes) / PREFIX_4B_SZ
 			} else if chunk.GetChunkType() == CHUNK_TYPE_SUB && chunk.GetPrefixType() == PREFIX_32B {
 				subChunkIndexes[cast] = true
-				subEntryCount += len(chunk.Hashes) / PREFIX_32B_SZ
+				subFullHashCount += len(chunk.Hashes) / PREFIX_32B_SZ
 			} else {
 				sbl.Logger.Warn("Unknow chunk type")
 				addedChunkCount--
@@ -279,14 +302,14 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 	}
 	sbl.DeleteChunks = make(map[ChunkData_ChunkType]map[ChunkNum]bool)
 
-	sbl.Logger.Info("Loaded %d existing add chunks and %d sub chunks "+
-		"(~ %d hashes added, ~ %d hashes removed), deleted %d chunks, added %d new chunks.",
-		len(addChunkIndexes),
-		len(subChunkIndexes),
-		newEntryCount,
-		subEntryCount,
-		deletedChunkCount,
+	sbl.Logger.Info("Update added %d chunks and deleted %d chunks "+
+		"(%d ADD prefixes add, %d SUB prefixes, %d ADD full hashes, %d SUB full hashes)",
 		addedChunkCount,
+		deletedChunkCount,
+		addPrefixCount,
+		subPrefixCount,
+		addFullHashCount,
+		subFullHashCount,
 	)
 	return nil
 }

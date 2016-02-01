@@ -366,6 +366,13 @@ func (sb *SafeBrowsing) reloadLoop() {
 		}
 		//		debug.FreeOSMemory()
 	}
+
+	// Recover from all panicks in reloadLoop, just to log the erros.
+	defer func() {
+		if r := recover(); r != nil {
+			sb.Logger.Error("reloadLoop panicked: %v", r)
+		}
+	}()
 }
 
 const v3KeyPrefix = "AIza"

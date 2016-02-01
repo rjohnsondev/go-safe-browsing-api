@@ -96,8 +96,6 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 
 		for _, url := range urls {
 
-			// hash it up
-			//                      sb.Logger.Debug("Hashing %s", url)
 			urlHash := getHash(url)
 
 			prefix := urlHash[:PREFIX_4B_SZ]
@@ -142,10 +140,10 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 			}
 
 			// re-check for full hash hit.
-			sbl.updateLock.RLock()
 			for _, url := range urls {
 				urlHash := getHash(url)
 				fullLookupHash := string(urlHash)
+
 				if sbl.FullHashes.Get(string(fullLookupHash)) {
 					return list, true, nil
 				}
@@ -260,6 +258,7 @@ func (sb *SafeBrowsing) processFullHashes(data string) error {
 		} else {
 			chunk_sz = 2
 		}
+
 		err = sb.readFullHashChunk(split[i+1], splitsplit[0], cacheLifeTime)
 	}
 	return err

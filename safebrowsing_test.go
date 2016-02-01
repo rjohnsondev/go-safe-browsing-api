@@ -37,7 +37,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	//"strings"
-	"sync"
 )
 
 type MockReadCloser struct {
@@ -161,8 +160,8 @@ func TestUrlListed(t *testing.T) {
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
 				},
-				Logger:     new(DefaultLogger),
-				fsLock:     new(sync.Mutex),
+				Logger: new(DefaultLogger),
+				fsLock: new(sync.Mutex),
 			},
 		},
 		Logger:  new(DefaultLogger),
