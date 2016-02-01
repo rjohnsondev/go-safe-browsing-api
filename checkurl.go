@@ -96,7 +96,6 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 
 		for _, url := range urls {
 
-			sbl.updateLock.RLock()
 			// hash it up
 			//                      sb.Logger.Debug("Hashing %s", url)
 			urlHash := getHash(url)
@@ -112,9 +111,9 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 				sbl.FullHashRequested.Delete(lookupHash)
 				sbl.FullHashes.Delete(fullLookupHash)
 			}
+
 			// look up full hash matches
 			if sbl.FullHashes.Get(fullLookupHash) {
-				sbl.updateLock.RUnlock()
 				return list, true, nil
 			}
 
@@ -122,20 +121,15 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 			if sbl.Lookup.Get(lookupHash) {
 				if !matchFullHash || OfflineMode {
 					//					sb.Logger.Debug("Partial hash hit")
-					sbl.updateLock.RUnlock()
 					return list, false, nil
 				}
 				// have we have already asked for full hashes for this prefix?
 				if sbl.FullHashRequested.Get(string(lookupHash)) {
 					//                                        sb.Logger.Debug("Full length hash miss")
-					sbl.updateLock.RUnlock()
 					continue
 				}
 
 				// we matched a prefix and need to request a full hash
-				//                                sb.Logger.Debug("Need to request full length hashes for %s",
-				//                                        hex.EncodeToString([]byte(prefix)))
-
 				keysToLookupMap[prefix] = true
 			}
 		}
@@ -153,10 +147,8 @@ func (sb *SafeBrowsing) queryUrl(url string, matchFullHash bool) (list string, f
 				urlHash := getHash(url)
 				fullLookupHash := string(urlHash)
 				if sbl.FullHashes.Get(string(fullLookupHash)) {
-					sbl.updateLock.RUnlock()
 					return list, true, nil
 				}
-				sbl.updateLock.RUnlock()
 			}
 		}
 		//			debug.FreeOSMemory()
@@ -216,11 +208,9 @@ func (sb *SafeBrowsing) requestFullHashes(list string, prefixes map[LookupHash]b
 	defer response.Body.Close()
 
 	// mark these prefxes as having been requested
-	sb.Lists[list].updateLock.Lock()
 	for prefix, _ := range prefixes {
 		sb.Lists[list].FullHashRequested.Set(string(prefix))
 	}
-	sb.Lists[list].updateLock.Unlock()
 
 	if response.StatusCode != 200 {
 		if response.StatusCode == 503 {
@@ -291,9 +281,7 @@ func (sb *SafeBrowsing) readFullHashChunk(hashes string, list string, cacheLifeT
 		} else if sb.Lists[list] == nil {
 			return fmt.Errorf("Google safe browsing list (%s) have not been initialized", list)
 		}
-		sb.Lists[list].updateLock.Lock()
 		sb.Lists[list].FullHashes.Set(hash)
-		sb.Lists[list].updateLock.Unlock()
 		sb.Lists[list].Cache[FullHash(hash)] = newFullHashCache(time.Now(), cacheLifeTime)
 	}
 	return nil
