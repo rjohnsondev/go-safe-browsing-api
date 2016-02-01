@@ -49,6 +49,7 @@ type SafeBrowsingList struct {
 	Lookup            *HatTrie
 	FullHashRequested *HatTrie
 	FullHashes        *HatTrie
+	Cache             map[FullHash]*FullHashCache
 
 	Logger logger
 	// fsLock is wrapped around the filesystem modifications and a call to
@@ -67,6 +68,7 @@ func newSafeBrowsingList(name string, filename string) (sbl *SafeBrowsingList) {
 		Lookup:            NewTrie(),
 		FullHashRequested: NewTrie(),
 		FullHashes:        NewTrie(),
+		Cache:             make(map[FullHash]*FullHashCache),
 		DeleteChunks:      make(map[ChunkData_ChunkType]map[ChunkNum]bool),
 		Logger:            &DefaultLogger{},
 		fsLock:            new(sync.Mutex),
@@ -163,6 +165,12 @@ func (sbl *SafeBrowsingList) load(newChunks []*ChunkData) (err error) {
 	subEntryCount := 0
 	deletedChunkCount := 0
 	addedChunkCount := len(newChunks)
+
+	// Just clear all Full Hashes as the GSBv3 specification requests us
+	// to delete all FullHashes on update
+	// https://developers.google.com/safe-browsing/developers_guide_v3#Changes3.0
+	sbl.FullHashes = NewTrie()
+	sbl.FullHashRequested = NewTrie()
 
 	// load existing chunk
 	if dec != nil {
@@ -295,13 +303,6 @@ func (sbl *SafeBrowsingList) updateLookupMap(chunk *ChunkData) {
 				sbl.Lookup.Set(prefix)
 			case CHUNK_TYPE_SUB:
 				sbl.Lookup.Delete(prefix)
-				i := sbl.FullHashes.Iterator()
-				for key := i.Next(); key != ""; key = i.Next() {
-					keyPrefix := key[0:len(prefix)]
-					if keyPrefix == prefix {
-						sbl.FullHashes.Delete(key)
-					}
-				}
 			}
 		case PREFIX_32B_SZ:
 			// we are a full-length hash
@@ -312,9 +313,12 @@ func (sbl *SafeBrowsingList) updateLookupMap(chunk *ChunkData) {
 				//                                      hex.EncodeToString([]byte(lookupHash)))
 				sbl.FullHashes.Set(lookupHash)
 			case CHUNK_TYPE_SUB:
-				//                              sbl.Logger.Debug("sub full length hash: %s",
-				//                                      hex.EncodeToString([]byte(lookupHash)))
+				// sbl.Logger.Debug("sub full length hash: %s", hex.EncodeToString([]byte(lookupHash)))
+				// delete will do nothing if lookupHash does not exist
 				sbl.FullHashes.Delete(lookupHash)
+				// Mark that we have already requested this fullhash so that we don't keep asking
+				// for this hash in the feature as this chunk is a SUB chunk which removes false positives
+				sbl.FullHashRequested.Set(lookupHash)
 			}
 		}
 		sbl.updateLock.Unlock()

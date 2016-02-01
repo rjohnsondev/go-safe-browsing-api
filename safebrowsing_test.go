@@ -156,6 +156,7 @@ func TestUrlListed(t *testing.T) {
 				Lookup:            NewTrie(),
 				FullHashRequested: NewTrie(),
 				FullHashes:        NewTrie(),
+				Cache:             make(map[FullHash]*FullHashCache),
 				DeleteChunks: map[ChunkData_ChunkType]map[ChunkNum]bool{
 					CHUNK_TYPE_ADD: make(map[ChunkNum]bool),
 					CHUNK_TYPE_SUB: make(map[ChunkNum]bool),
@@ -164,7 +165,6 @@ func TestUrlListed(t *testing.T) {
 				updateLock: new(sync.RWMutex),
 			},
 		},
-		Cache:   make(map[HostHash]*FullHashCache),
 		Logger:  new(DefaultLogger),
 		request: NewMockRequest(string(chunkData)),
 	}
