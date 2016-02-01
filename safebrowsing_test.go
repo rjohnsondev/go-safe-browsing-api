@@ -36,6 +36,7 @@ import (
 	"crypto/sha256"
 	"io/ioutil"
 	"net/http"
+	"sync"
 	//"strings"
 )
 
