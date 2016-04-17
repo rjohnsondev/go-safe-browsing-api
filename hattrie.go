@@ -5,12 +5,7 @@ package safebrowsing
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "hat-trie/src/hat-trie.h"
-
-#include "hat-trie/src/ahtable.c"
-#include "hat-trie/src/hat-trie.c"
-#include "hat-trie/src/misc.c"
-#include "hat-trie/src/murmurhash3.c"
+#include "hat-trie.h"
 
 hattrie_t* start() {
 	hattrie_t* trie;
