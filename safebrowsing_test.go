@@ -139,7 +139,7 @@ func TestUrlListed(t *testing.T) {
 	hasher := sha256.New()
 	hasher.Write([]byte(url))
 	hash := hasher.Sum(nil)
-	chunkData := []byte("600\n" + "googpub-phish-shavar:32:1\n" + string(hash) + "\n")
+	chunkData := []byte("600\n" + "googpub-phish-shavar:32:1\n" + string(hash))
 	tmpDirName, err := ioutil.TempDir("", "safebrowsing")
 	if err != nil {
 		t.Error(err)
