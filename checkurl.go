@@ -230,36 +230,66 @@ func (sb *SafeBrowsing) requestFullHashes(list string, prefixes map[LookupHash]b
 func (sb *SafeBrowsing) processFullHashes(data string) error {
 	//	defer debug.FreeOSMemory()
 
-	split := strings.Split(data, "\n")
-	split_sz := len(split)
-	if split_sz == 0 {
+	pos := strings.IndexByte(data, '\n')
+	if -1 == pos {
 		return nil
 	}
-	cacheLifeTime, err := strconv.Atoi(split[0])
+	cacheLifeTime, err := strconv.Atoi(data[0:pos])
 	if err != nil {
 		return err
 	}
-	if split_sz <= 2 {
-		return nil
-	}
-	for i, len_splitsplit, chunk_sz := 1, 0, 0; (i+1) < split_sz && err == nil; i += chunk_sz {
-		splitsplit := strings.Split(split[i], ":")
-		len_splitsplit = len(splitsplit)
-		if len_splitsplit < 3 {
-			return fmt.Errorf("Malformated response: %s", split[i])
-		} else if len_splitsplit == 4 {
-			num_resp, err := strconv.Atoi(splitsplit[2])
-			if err != nil {
-				return err
-			} else if (num_resp + 2 + i) > split_sz {
-				return fmt.Errorf("Malformated response: %s", split[i])
-			}
-			chunk_sz = 2 + num_resp
-		} else {
-			chunk_sz = 2
+	data = data[pos+1:]
+
+	for pos, rec_len := 0, 0; pos < len(data); pos += rec_len {
+		nl_pos := strings.IndexByte(data[pos:], '\n')
+		if -1 == nl_pos {
+			return fmt.Errorf("Malformated response: unable to find end of header")
+		}
+		header := data[pos : pos+nl_pos]
+		// Increment by the header+newline
+		rec_len = pos + nl_pos + 1
+
+		headerArray := strings.Split(header, ":")
+		headerRecCount := len(headerArray)
+		if 3 != headerRecCount && 4 != headerRecCount {
+			return fmt.Errorf("Malformated response: %s", header)
+		}
+		// How many 32 byte hashes do we have
+		num_resp, err := strconv.Atoi(headerArray[2])
+		if err != nil {
+			return err
+		} else if 0 >= num_resp {
+			return fmt.Errorf("Malformated response: %s", header)
+		} else if (pos + (num_resp * 32)) > len(data) {
+			return fmt.Errorf("Malformated response: %s", header)
 		}
 
-		err = sb.readFullHashChunk(split[i+1], splitsplit[0], cacheLifeTime)
+		hashes := data[nl_pos+1 : nl_pos+1+(num_resp*32)]
+		// Increment by the number of 32 byte hashes
+		rec_len = rec_len + num_resp*32
+
+		if 4 == headerRecCount {
+			// We have metadata, check for a valid marker
+			if "m" != headerArray[3] {
+				return fmt.Errorf("Malformated response: %s", header)
+			}
+			for resp := 0; resp < num_resp; resp++ {
+				nl_pos = strings.IndexByte(data[pos+rec_len:], '\n')
+				if -1 == nl_pos {
+					return fmt.Errorf("Malformated response: unable to parse metadata length")
+				}
+				// How many bytes is the metadata record
+				len_meta, err := strconv.Atoi(data[pos+rec_len : pos+rec_len+nl_pos])
+				if err != nil {
+					return err
+				} else if pos+rec_len+nl_pos+len_meta > len(data) {
+					return fmt.Errorf("Malformated response: %s", header)
+				}
+				// Increment by the length field and the meta data
+				rec_len += nl_pos + 1 + len_meta
+			}
+		}
+		err = sb.readFullHashChunk(hashes, headerArray[0], cacheLifeTime)
 	}
 	return err
 }
